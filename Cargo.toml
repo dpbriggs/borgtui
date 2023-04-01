@@ -1,0 +1,20 @@
+[package]
+name = "borgtui"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.70"
+borgbackup = "0.6.0"
+chrono = "0.4.24"
+clap = { version = "4.2.0", features = ["derive"] }
+crossterm = "0.26.1"
+dirs = "5.0.0"
+serde = { version = "1.0.159", features = ["derive"] }
+serde_json = "1.0.95"
+toml = "0.7.3"
+tracing = "0.1.37"
+tracing-subscriber = "0.3.16"
+tui = "0.19.0"
