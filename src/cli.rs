@@ -37,6 +37,16 @@ pub(crate) enum Action {
         /// will be used.
         #[arg(short, long)]
         profile: Option<String>,
+
+        /// The encryption passphrase to use. If not specified and borgtui
+        /// called in an interactive terminal, the user will be prompted.
+        #[arg(short, long)]
+        encryption_passphrase: Option<String>,
+
+        /// If true, store the encryption passphrase in cleartext in the
+        /// configuration file. This is not recommended.
+        #[arg(short, long, default_value = "false")]
+        store_passphase_in_cleartext: bool,
     },
 }
 

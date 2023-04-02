@@ -7,11 +7,14 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.70"
-borgbackup = "0.6.0"
+atty = "0.2.14"
+borgbackup = { version = "0.6.0", features = ["tokio"] }
 chrono = "0.4.24"
 clap = { version = "4.2.0", features = ["derive"] }
 crossterm = "0.26.1"
 dirs = "5.0.0"
+keyring = "2.0.1"
+rpassword = "7.2.0"
 serde = { version = "1.0.159", features = ["derive"] }
 serde_json = "1.0.95"
 toml = "0.7.3"
