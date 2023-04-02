@@ -1,13 +1,13 @@
 use clap::{Parser, Subcommand};
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
 pub(crate) struct Args {
     #[command(subcommand)]
     pub(crate) action: Option<Action>,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 pub(crate) enum Action {
     /// Initialize a new borg repository
     Init,
@@ -20,6 +20,16 @@ pub(crate) enum Action {
     },
     /// Add a directory or file to backup
     Add {
+        /// The directory or file path to add to backup
+        directory: String, // TODO: Make this a PathBuf
+
+        /// The profile to use. If not specified, the default profile
+        /// will be used.
+        #[arg(short, long)]
+        profile: Option<String>,
+    },
+    /// Add a directory or file to backup
+    Remove {
         /// The directory or file path to add to backup
         directory: String, // TODO: Make this a PathBuf
 
@@ -47,6 +57,13 @@ pub(crate) enum Action {
         /// configuration file. This is not recommended.
         #[arg(short, long, default_value = "false")]
         store_passphase_in_cleartext: bool,
+    },
+    /// List the archives in a directory
+    List {
+        /// The profile to use. If not specified, the default profile
+        /// will be used.
+        #[arg(short, long)]
+        profile: Option<String>,
     },
 }
 

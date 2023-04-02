@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+// use tokio::fs::meta
 use crate::types::BorgResult;
 use anyhow::Context;
 use borgbackup::common::CreateOptions;
@@ -8,16 +9,22 @@ use keyring::Entry;
 use serde::{Deserialize, Serialize};
 
 // TODO: This debug impl is a security concern.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) enum Encryption {
     None,
     Raw(String),
     Keyring,
 }
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Repository {
     path: String,
     encryption: Encryption,
+}
+
+impl std::fmt::Display for Repository {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Repository<{}>", self.path)
+    }
 }
 
 fn get_keyring_entry(repo_path: &str) -> BorgResult<Entry> {
@@ -44,9 +51,13 @@ impl Repository {
                 .map(Some),
         }
     }
+
+    pub(crate) fn get_path(&self) -> String {
+        self.path.clone()
+    }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Profile {
     name: String,
     backup_paths: Vec<String>,
@@ -62,12 +73,15 @@ impl std::fmt::Display for Profile {
 
 impl Profile {
     pub(crate) const DEFAULT_PROFILE_NAME: &'static str = "default";
-    pub(crate) fn try_open_profile_or_create_default(profile: &Option<String>) -> BorgResult<Self> {
+    pub(crate) async fn try_open_profile_or_create_default(
+        profile: &Option<String>,
+    ) -> BorgResult<Self> {
         match profile {
             Some(profile_name) => Profile::open_profile(profile_name)
+                .await
                 .with_context(|| format!("Failed to open profile {}", profile_name))?
                 .ok_or_else(|| anyhow::anyhow!("Profile {} does not exist", profile_name)),
-            None => Profile::open_or_create_default_profile(),
+            None => Profile::open_or_create_default_profile().await,
         }
     }
 
@@ -79,24 +93,25 @@ impl Profile {
         }
     }
 
-    pub(crate) fn open_or_create_default_profile() -> BorgResult<Self> {
-        if let Some(profile) = Self::open_profile(Self::DEFAULT_PROFILE_NAME)? {
+    pub(crate) async fn open_or_create_default_profile() -> BorgResult<Self> {
+        if let Some(profile) = Self::open_profile(Self::DEFAULT_PROFILE_NAME).await? {
             Ok(profile)
         } else {
             let profile = Self::blank(Self::DEFAULT_PROFILE_NAME);
-            profile.save_profile()?;
+            profile.save_profile().await?;
             Ok(profile)
         }
     }
 
-    pub(crate) fn open_profile(name: &str) -> BorgResult<Option<Self>> {
+    pub(crate) async fn open_profile(name: &str) -> BorgResult<Option<Self>> {
         let blank = Self::blank(name);
         // TODO: This is a bit of a hack; make this less janky lol
         let profile_path = blank.profile_path()?;
         if !profile_path.exists() {
             return Ok(None);
         }
-        let profile = std::fs::read_to_string(profile_path)
+        let profile = tokio::fs::read_to_string(profile_path)
+            .await
             .with_context(|| format!("Failed to read profile {}", name))?;
         serde_json::from_str(&profile)
             .with_context(|| format!("Failed to deserialize profile {}", name))
@@ -105,6 +120,10 @@ impl Profile {
 
     pub(crate) fn name(&self) -> &str {
         &self.name
+    }
+
+    pub(crate) fn repositories(&self) -> &[Repository] {
+        &self.repos
     }
 
     pub(crate) fn serialize(&self) -> BorgResult<String> {
@@ -146,10 +165,10 @@ impl Profile {
         Ok(path)
     }
 
-    pub(crate) fn save_profile(&self) -> BorgResult<()> {
+    pub(crate) async fn save_profile(&self) -> BorgResult<()> {
         let profile_path = self.profile_path()?;
         if let Some(parent) = profile_path.parent() {
-            std::fs::create_dir_all(parent).with_context(|| {
+            tokio::fs::create_dir_all(parent).await.with_context(|| {
                 format!(
                     "Failed to create parent directory for profile {}",
                     self.name
@@ -157,20 +176,14 @@ impl Profile {
             })?
         }
         let profile = self.serialize()?;
-        std::fs::write(profile_path, profile)
+        tokio::fs::write(profile_path, profile)
+            .await
             .with_context(|| format!("Failed to write profile {}", self.name))
     }
 
-    pub(crate) fn add_backup_path(&mut self, path: String) -> BorgResult<()> {
-        // TODO: Handle duplicates
-        std::fs::metadata(&path).with_context(|| {
-            format!(
-                "Failed to get metadata for path {} when adding to profile {}. Does the path exist?",
-                path, self.name
-            )
-        })?;
-        self.backup_paths.push(path);
-        Ok(())
+    pub(crate) fn has_repository(&self, path: &str) -> bool {
+        // TODO: Handle trailing slashes or other weirdness
+        self.repos.iter().any(|r| r.path == path)
     }
 
     pub(crate) fn add_repository(
@@ -202,8 +215,27 @@ impl Profile {
         Ok(())
     }
 
+    pub(crate) async fn add_backup_path(&mut self, path: String) -> BorgResult<()> {
+        // TODO: Handle trailing slashes or other weirdness
+        if self.backup_paths.contains(&path) {
+            return Err(anyhow::anyhow!(
+                "Path {} already exists in profile {}",
+                path,
+                self.name
+            ));
+        }
+        tokio::fs::metadata(&path).await.with_context(|| {
+            format!(
+                "Failed to get metadata for path {} when adding to profile {}. Does the path exist?",
+                path, self.name
+            )
+        })?;
+        self.backup_paths.push(path);
+        Ok(())
+    }
+
     pub(crate) fn remove_backup_path(&mut self, path: &str) {
-        // TODO: Handle trailing slashes
+        // TODO: Handle trailing slashes or other weirdness
         self.backup_paths.retain(|p| p != path);
     }
 }

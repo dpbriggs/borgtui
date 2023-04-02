@@ -1,6 +1,14 @@
-use crate::{profiles::Profile, types::BorgResult};
+use tokio::sync::mpsc;
+
+use crate::{
+    profiles::{Profile, Repository},
+    types::BorgResult,
+};
 use anyhow::bail;
-use borgbackup::common::CommonOptions;
+use borgbackup::{
+    asynchronous as borg_async,
+    common::{CommonOptions, ListOptions},
+};
 use tracing::info;
 
 fn archive_name(name: &str) -> String {
@@ -11,14 +19,47 @@ fn archive_name(name: &str) -> String {
     )
 }
 
-pub(crate) fn create_backup(profile: &Profile) -> BorgResult<()> {
+// TODO: Better name
+#[derive(Debug)]
+pub(crate) struct MyCreateProgress {
+    pub(crate) repository: String,
+    pub(crate) create_progress: borg_async::CreateProgress,
+}
+
+pub(crate) async fn create_backup(
+    profile: &Profile,
+    progress_channel: mpsc::Sender<MyCreateProgress>,
+) -> BorgResult<()> {
     let archive_name = archive_name(profile.name());
     for create_option in profile.borg_create_options(archive_name)? {
         info!(
             "Creating archive {} in repository {}",
             create_option.archive, create_option.repository
         );
-        match borgbackup::sync::create(&create_option, &CommonOptions::default()) {
+        let (create_progress_send, mut create_progress_recv) =
+            mpsc::channel::<borg_async::CreateProgress>(100);
+
+        let repo_name_clone = create_option.repository.clone();
+        let progress_channel = progress_channel.clone();
+        tokio::spawn(async move {
+            while let Some(progress) = create_progress_recv.recv().await {
+                progress_channel
+                    .send(MyCreateProgress {
+                        repository: repo_name_clone.clone(),
+                        create_progress: progress,
+                    })
+                    .await
+                    .unwrap();
+            }
+        });
+
+        match borgbackup::asynchronous::create_progress(
+            &create_option,
+            &CommonOptions::default(),
+            create_progress_send,
+        )
+        .await
+        {
             Ok(c) => info!("Archive created successfully: {:?}", c.archive.stats),
             Err(e) => bail!(
                 "Failed to create archive {} in repo {}: {:?}",
@@ -27,6 +68,28 @@ pub(crate) fn create_backup(profile: &Profile) -> BorgResult<()> {
                 e
             ),
         }
+    }
+    Ok(())
+}
+
+pub(crate) async fn list_archives(repo: &Repository) -> BorgResult<()> {
+    let list_options = ListOptions {
+        repository: repo.get_path(),
+        passphrase: repo.get_passphrase()?,
+    };
+    match borg_async::list(&list_options, &CommonOptions::default()).await {
+        Ok(l) => {
+            info!("Archives in repo {}: {:?}", repo.get_path(), l);
+            // TODO: This is a bug in borgbackup, these fields should be public
+            // for archive in l.archives {
+            //     info!("Archive: {:?}", archive);
+            // }
+        }
+        Err(e) => bail!(
+            "Failed to list archives in repo {}: {:?}",
+            repo.get_path(),
+            e
+        ),
     }
     Ok(())
 }
