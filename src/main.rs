@@ -36,13 +36,6 @@ async fn handle_tui_command(
     command_response_send: mpsc::Sender<CommandResponse>,
 ) -> BorgResult<bool> {
     match command {
-        Command::GetOrCreateDefaultProfile => {
-            let profile = Profile::try_open_profile_or_create_default(&None).await?;
-            command_response_send
-                .send(CommandResponse::Profile(profile))
-                .await?;
-            Ok(false)
-        }
         Command::CreateBackup(profile) => {
             let (send, mut recv) = mpsc::channel::<MyCreateProgress>(QUEUE_SIZE);
             tokio::spawn(async move {

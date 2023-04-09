@@ -8,7 +8,6 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use tokio::sync::mpsc::{Receiver, Sender};
-use tui::widgets::Widget;
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -23,14 +22,12 @@ use tui::{
 
 #[derive(Debug)]
 pub(crate) enum Command {
-    GetOrCreateDefaultProfile,
     CreateBackup(Profile),
     Quit,
 }
 
 #[derive(Debug)]
 pub(crate) enum CommandResponse {
-    Profile(Profile),
     CreateProgress(MyCreateProgress),
 }
 
@@ -144,14 +141,10 @@ impl BorgTui {
     fn handle_command(&mut self, msg: CommandResponse) {
         tracing::debug!("Got message: {:?}", msg);
         match msg {
-            CommandResponse::Profile(profile) => {
-                self.profile = profile;
-            }
             CommandResponse::CreateProgress(progress) => {
                 let repo = progress.repository.clone();
                 match progress.create_progress {
                     CreateProgress::Progress { path, .. } => {
-                        let (path, repo) = (path, repo.clone());
                         self.recently_backed_up_files
                             .entry(repo)
                             .or_insert_with(|| RingBuffer::new(5))
@@ -201,7 +194,7 @@ impl BorgTui {
                             })
                             .collect::<Vec<_>>()
                     })
-                    .unwrap_or_else(|| vec![]);
+                    .unwrap_or_else(Vec::new);
                 let backup_file_list = List::new(items)
                     .block(
                         Block::default()
