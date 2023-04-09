@@ -48,6 +48,12 @@ pub(crate) enum Action {
         #[arg(short, long)]
         profile: Option<String>,
 
+        // TODO: Simplify these options!
+        /// The encryption passphrase to use. If not specified and borgtui
+        /// called in an interactive terminal, the user will be prompted.
+        #[arg(short, long, default_value = "true")]
+        no_encryption: bool,
+
         /// The encryption passphrase to use. If not specified and borgtui
         /// called in an interactive terminal, the user will be prompted.
         #[arg(short, long)]

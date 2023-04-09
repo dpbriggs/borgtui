@@ -1,5 +1,6 @@
 // use crate::cli::Action;
-use crate::{borg::MyCreateProgress, profiles::Profile, types::BorgResult};
+use crate::types::{BorgResult, RingBuffer};
+use crate::{borg::MyCreateProgress, profiles::Profile};
 use borgbackup::asynchronous::CreateProgress;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -7,7 +8,9 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use tokio::sync::mpsc::{Receiver, Sender};
+use tui::widgets::Widget;
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -37,7 +40,8 @@ pub(crate) struct BorgTui {
     command_channel: Sender<Command>,
     recv_channel: Receiver<CommandResponse>,
     done: bool,
-    recently_backed_up_files: Vec<(String, String)>,
+    is_backing_up: bool,
+    recently_backed_up_files: HashMap<String, RingBuffer<String>>,
 }
 
 impl BorgTui {
@@ -51,8 +55,9 @@ impl BorgTui {
             profile,
             command_channel,
             recv_channel,
+            is_backing_up: false,
             done: false,
-            recently_backed_up_files: Vec::new(),
+            recently_backed_up_files: HashMap::new(),
         }
     }
 
@@ -105,6 +110,7 @@ impl BorgTui {
                         }
                         // KeyCode::Down => app.items.next(),
                         KeyCode::Up => {
+                            self.start_backing_up();
                             self.send_create_command()?;
                         }
                         _ => {}
@@ -131,28 +137,41 @@ impl BorgTui {
         Ok(())
     }
 
-    fn on_tick(&mut self) -> BorgResult<()> {
-        // TODO: Handle several of these.
-        let res = self.recv_channel.try_recv().map(|msg| {
-            tracing::debug!("Got message: {:?}", msg);
-            match msg {
-                CommandResponse::Profile(profile) => {
-                    self.profile = profile;
-                }
-                CommandResponse::CreateProgress(progress) => {
-                    let repo = progress.repository.clone();
-                    match progress.create_progress {
-                        CreateProgress::Progress { path, .. } => {
-                            self.recently_backed_up_files.push((path, repo));
-                        }
-                        CreateProgress::Finished => {
-                            // TODO: Show a notification
-                            tracing::info!("Finished backing up {}", repo);
-                        }
+    fn start_backing_up(&mut self) {
+        self.is_backing_up = true;
+    }
+
+    fn handle_command(&mut self, msg: CommandResponse) {
+        tracing::debug!("Got message: {:?}", msg);
+        match msg {
+            CommandResponse::Profile(profile) => {
+                self.profile = profile;
+            }
+            CommandResponse::CreateProgress(progress) => {
+                let repo = progress.repository.clone();
+                match progress.create_progress {
+                    CreateProgress::Progress { path, .. } => {
+                        let (path, repo) = (path, repo.clone());
+                        self.recently_backed_up_files
+                            .entry(repo)
+                            .or_insert_with(|| RingBuffer::new(5))
+                            .push_back(path);
+                    }
+                    CreateProgress::Finished => {
+                        // TODO: Show a notification
+                        tracing::info!("Finished backing up {}", repo);
                     }
                 }
             }
-        });
+        }
+    }
+
+    fn on_tick(&mut self) -> BorgResult<()> {
+        // TODO: Handle several of these.
+        let res = self
+            .recv_channel
+            .try_recv()
+            .map(|cmd| self.handle_command(cmd));
         let disconnected = matches!(
             res,
             Err(tokio::sync::mpsc::error::TryRecvError::Disconnected)
@@ -164,27 +183,55 @@ impl BorgTui {
         Ok(())
     }
 
-    fn draw_ui<B: Backend>(&mut self, frame: &mut Frame<B>) {
-        let chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(100)].as_ref())
-            .split(frame.size());
-        let items = self
-            .recently_backed_up_files
+    fn draw_backup_list<B: Backend>(&self, frame: &mut Frame<B>, areas: &[tui::layout::Rect]) {
+        self.profile
+            .repos()
             .iter()
-            .map(|(path, repo)| -> ListItem {
-                let text = Text::from(format!("{} - {}", path, repo));
-                ListItem::new(text).style(Style::default().fg(Color::Black).bg(Color::White))
+            .zip(areas)
+            .for_each(|(repo, area)| {
+                let items = self
+                    .recently_backed_up_files
+                    .get(&repo.path)
+                    .map(|ring| {
+                        ring.iter()
+                            .map(|path| {
+                                let text = Text::from(path.clone());
+                                ListItem::new(text)
+                                    .style(Style::default().fg(Color::Black).bg(Color::White))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_else(|| vec![]);
+                let backup_file_list = List::new(items)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(format!("Backup {}", repo.path)),
+                    )
+                    .highlight_style(
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    );
+                frame.render_widget(backup_file_list, *area);
             })
-            .collect::<Vec<_>>();
-        let items = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title("List"))
-            .highlight_style(
-                Style::default()
-                    .bg(Color::LightGreen)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .highlight_symbol(">> ");
-        frame.render_widget(items, chunks[0]);
+    }
+
+    fn draw_ui<B: Backend>(&mut self, frame: &mut Frame<B>) {
+        // TODO: Calculate chunks based on number of repos
+        let constraints = std::iter::repeat(Constraint::Percentage(
+            100 / self.profile.num_repos() as u16,
+        ))
+        .take(self.profile.num_repos())
+        .collect::<Vec<_>>();
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints.as_ref())
+            .split(frame.size());
+        if self.is_backing_up {
+            self.draw_backup_list(frame, &chunks);
+        } else {
+        }
     }
 }

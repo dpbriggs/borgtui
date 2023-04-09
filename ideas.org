@@ -3,4 +3,7 @@
 CLOSED: [2023-04-01 Sat 15:23]
 ** DONE "borgtui create" will generate a backup for each repository under a profile.
 CLOSED: [2023-04-02 Sun 10:47]
-** TODO Use the async borgtui create
+** DONE Use the async borgtui create
+CLOSED: [2023-04-09 Sun 09:43]
+** TODO Have a different screen than backing up files
+** TODO Have the ability to add backup paths from the tui

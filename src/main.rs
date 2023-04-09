@@ -129,9 +129,11 @@ async fn handle_action(action: Action) -> BorgResult<()> {
         Action::AddRepo {
             repository,
             profile,
+            no_encryption,
             encryption_passphrase,
             store_passphase_in_cleartext,
         } => {
+            // TODO: Check if repo is valid
             let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
             if profile.has_repository(&repository) {
                 bail!(
@@ -142,7 +144,13 @@ async fn handle_action(action: Action) -> BorgResult<()> {
             }
             let passphrase = match encryption_passphrase {
                 Some(passphrase) => Some(passphrase),
-                None => try_get_initial_repo_password()?,
+                None => {
+                    if no_encryption {
+                        None
+                    } else {
+                        try_get_initial_repo_password()?
+                    }
+                }
             };
             profile.add_repository(repository.clone(), passphrase, store_passphase_in_cleartext)?;
             profile.save_profile().await?;

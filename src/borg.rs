@@ -9,7 +9,7 @@ use borgbackup::{
     asynchronous as borg_async,
     common::{CommonOptions, ListOptions},
 };
-use tracing::info;
+use tracing::{error, info};
 
 fn archive_name(name: &str) -> String {
     format!(
@@ -53,21 +53,22 @@ pub(crate) async fn create_backup(
             }
         });
 
-        match borgbackup::asynchronous::create_progress(
-            &create_option,
-            &CommonOptions::default(),
-            create_progress_send,
-        )
-        .await
-        {
-            Ok(c) => info!("Archive created successfully: {:?}", c.archive.stats),
-            Err(e) => bail!(
-                "Failed to create archive {} in repo {}: {:?}",
-                create_option.archive,
-                create_option.repository,
-                e
-            ),
-        }
+        tokio::spawn(async move {
+            match borgbackup::asynchronous::create_progress(
+                &create_option,
+                &CommonOptions::default(),
+                create_progress_send,
+            )
+            .await
+            {
+                Ok(c) => info!("Archive created successfully: {:?}", c.archive.stats),
+                // TODO: Send this error message along that channel
+                Err(e) => error!(
+                    "Failed to create archive {} in repo {}: {:?}",
+                    create_option.archive, create_option.repository, e
+                ),
+            };
+        });
     }
     Ok(())
 }

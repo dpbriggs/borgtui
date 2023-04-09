@@ -17,7 +17,7 @@ pub(crate) enum Encryption {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Repository {
-    path: String,
+    pub(crate) path: String,
     encryption: Encryption,
 }
 
@@ -120,6 +120,14 @@ impl Profile {
 
     pub(crate) fn name(&self) -> &str {
         &self.name
+    }
+
+    pub(crate) fn repos(&self) -> &[Repository] {
+        &self.repos
+    }
+
+    pub(crate) fn num_repos(&self) -> usize {
+        self.repos.len()
     }
 
     pub(crate) fn repositories(&self) -> &[Repository] {
