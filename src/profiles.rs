@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 // use tokio::fs::meta
 use crate::types::BorgResult;
@@ -7,6 +7,7 @@ use borgbackup::common::CreateOptions;
 use keyring::Entry;
 
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 
 // TODO: This debug impl is a security concern.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -19,6 +20,8 @@ pub(crate) enum Encryption {
 pub(crate) struct Repository {
     pub(crate) path: String,
     encryption: Encryption,
+    #[serde(skip)]
+    pub(crate) lock: Arc<Mutex<()>>,
 }
 
 impl std::fmt::Display for Repository {
@@ -38,7 +41,11 @@ fn get_keyring_entry(repo_path: &str) -> BorgResult<Entry> {
 
 impl Repository {
     pub(crate) fn new(path: String, encryption: Encryption) -> Self {
-        Self { path, encryption }
+        Self {
+            path,
+            encryption,
+            lock: Default::default(),
+        }
     }
 
     pub(crate) fn get_passphrase(&self) -> BorgResult<Option<String>> {
@@ -142,7 +149,7 @@ impl Profile {
     pub(crate) fn borg_create_options(
         &self,
         archive_name: String,
-    ) -> BorgResult<Vec<CreateOptions>> {
+    ) -> BorgResult<Vec<(CreateOptions, Repository)>> {
         if self.repos.is_empty() {
             return Err(anyhow::anyhow!(
                 "No repositories configured for profile {}",
@@ -150,7 +157,7 @@ impl Profile {
             ));
         }
         let mut create_options_list = Vec::new();
-        for repo in &self.repos {
+        for repo in self.repos.clone() {
             let mut create_options = CreateOptions::new(
                 repo.path.clone(),
                 archive_name.clone(),
@@ -158,7 +165,7 @@ impl Profile {
                 vec![],
             );
             create_options.passphrase = repo.get_passphrase()?;
-            create_options_list.push(create_options);
+            create_options_list.push((create_options, repo));
         }
         Ok(create_options_list)
     }

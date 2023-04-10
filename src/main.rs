@@ -66,7 +66,6 @@ async fn setup_tui() -> BorgResult<JoinHandle<()>> {
         }
     });
     while let Some(command) = command_recv.recv().await {
-        debug!("inside");
         match handle_tui_command(command, response_send.clone()).await {
             Ok(true) => return Ok(res),
             Err(e) => error!("Failed to handle tui command: {}", e),

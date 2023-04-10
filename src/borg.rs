@@ -31,7 +31,7 @@ pub(crate) async fn create_backup(
     progress_channel: mpsc::Sender<MyCreateProgress>,
 ) -> BorgResult<()> {
     let archive_name = archive_name(profile.name());
-    for create_option in profile.borg_create_options(archive_name)? {
+    for (create_option, repo) in profile.borg_create_options(archive_name)? {
         info!(
             "Creating archive {} in repository {}",
             create_option.archive, create_option.repository
@@ -42,6 +42,7 @@ pub(crate) async fn create_backup(
         let repo_name_clone = create_option.repository.clone();
         let progress_channel = progress_channel.clone();
         tokio::spawn(async move {
+            let _backup_guard = repo.lock.lock().await;
             while let Some(progress) = create_progress_recv.recv().await {
                 progress_channel
                     .send(MyCreateProgress {

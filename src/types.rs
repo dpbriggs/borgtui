@@ -1,6 +1,7 @@
 #![allow(unused)]
 pub(crate) type BorgResult<T> = anyhow::Result<T>;
 
+#[derive(Debug)]
 pub(crate) struct RingBuffer<T> {
     data: Vec<T>,
     capacity: usize,
@@ -36,7 +37,9 @@ impl<T> RingBuffer<T> {
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.head == self.tail
+        // TODO: Fix this buggy test
+        self.data.is_empty()
+        // self.head == self.tail
     }
 
     pub(crate) fn iter(&self) -> RingBufferIter<'_, T> {
