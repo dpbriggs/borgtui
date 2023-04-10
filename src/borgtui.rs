@@ -8,13 +8,15 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use tokio::sync::mpsc::{Receiver, Sender};
+use tui::layout::Rect;
+use tui::text::Spans;
+use tui::widgets::Paragraph;
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
     text::Text,
     widgets::{Block, Borders, List, ListItem},
     Frame, Terminal,
@@ -105,8 +107,7 @@ impl BorgTui {
                             self.send_quit_command()?;
                             return Ok(());
                         }
-                        // KeyCode::Down => app.items.next(),
-                        KeyCode::Up => {
+                        KeyCode::Char('u') => {
                             self.start_backing_up();
                             self.send_create_command()?;
                         }
@@ -176,7 +177,16 @@ impl BorgTui {
         Ok(())
     }
 
-    fn draw_backup_list<B: Backend>(&self, frame: &mut Frame<B>, areas: &[tui::layout::Rect]) {
+    fn draw_backup_list<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        let backup_constraints = std::iter::repeat(Constraint::Percentage(
+            100 / self.profile.num_repos() as u16,
+        ))
+        .take(self.profile.num_repos())
+        .collect::<Vec<_>>();
+        let areas = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(backup_constraints.as_ref())
+            .split(area);
         self.profile
             .repos()
             .iter()
@@ -190,40 +200,44 @@ impl BorgTui {
                             .map(|path| {
                                 let text = Text::from(path.clone());
                                 ListItem::new(text)
-                                    .style(Style::default().fg(Color::Black).bg(Color::White))
                             })
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_else(Vec::new);
-                let backup_file_list = List::new(items)
-                    .block(
-                        Block::default()
-                            .borders(Borders::ALL)
-                            .title(format!("Backup {}", repo.path)),
-                    )
-                    .highlight_style(
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::White)
-                            .add_modifier(Modifier::BOLD),
-                    );
-                frame.render_widget(backup_file_list, *area);
+                let backup_file_list = List::new(items).block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title(format!("Backup {}", repo.path)),
+                );
+                frame.render_widget(backup_file_list, area);
             })
+    }
+
+    fn draw_info_panel<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        let text = vec![
+            Spans::from("Press 'q' to quit"),
+            Spans::from("Press 'u' to backup"),
+        ];
+        let info_panel =
+            Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("borgtui"));
+        frame.render_widget(info_panel, area);
+    }
+
+    // TODO: Make this dynamic and generic over the screen
+    fn split_screen<B: Backend>(&self, frame: &mut Frame<B>) -> (Rect, Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
+            .split(frame.size());
+        (chunks[0], chunks[1])
     }
 
     fn draw_ui<B: Backend>(&mut self, frame: &mut Frame<B>) {
         // TODO: Calculate chunks based on number of repos
-        let constraints = std::iter::repeat(Constraint::Percentage(
-            100 / self.profile.num_repos() as u16,
-        ))
-        .take(self.profile.num_repos())
-        .collect::<Vec<_>>();
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(constraints.as_ref())
-            .split(frame.size());
+        let (left, right) = self.split_screen(frame);
+        self.draw_info_panel(frame, left);
         if self.is_backing_up {
-            self.draw_backup_list(frame, &chunks);
+            self.draw_backup_list(frame, right);
         } else {
         }
     }
