@@ -36,7 +36,9 @@ pub(crate) enum CommandResponse {
 }
 
 #[derive(Default)]
+// TODO: Move each associated member to their own struct
 struct BackupState {
+    backup_stats: HashMap<String, (u64, u64, u64, u64)>,
     recently_backed_up_files: HashMap<String, RingBuffer<String>>,
     finished_backing_up: HashSet<String>,
 }
@@ -70,6 +72,9 @@ pub(crate) struct BorgTui {
 }
 
 impl BorgTui {
+    // The number of queued updates to pull per update tick.
+    const POLLING_AMOUNT: usize = 10;
+
     pub(crate) fn new(
         profile: Profile,
         command_channel: Sender<Command>,
@@ -166,6 +171,22 @@ impl BorgTui {
         self.ui_state = UIState::BackingUp;
     }
 
+    fn record_create_progress(
+        &mut self,
+        repo: String,
+        path: String,
+        num_files: u64,
+        original_size: u64,
+        compressed_size: u64,
+        deduplicated_size: u64,
+    ) {
+        self.insert_recently_backed_up_file(repo.clone(), path);
+        self.backup_state.backup_stats.insert(
+            repo,
+            (num_files, original_size, compressed_size, deduplicated_size),
+        );
+    }
+
     fn insert_recently_backed_up_file(&mut self, repo: String, path: String) {
         self.backup_state
             .recently_backed_up_files
@@ -180,8 +201,21 @@ impl BorgTui {
             CommandResponse::CreateProgress(progress) => {
                 let repo = progress.repository.clone();
                 match progress.create_progress {
-                    CreateProgress::Progress { path, .. } => {
-                        self.insert_recently_backed_up_file(repo, path);
+                    CreateProgress::Progress {
+                        path,
+                        nfiles,
+                        original_size,
+                        compressed_size,
+                        deduplicated_size,
+                    } => {
+                        self.record_create_progress(
+                            repo,
+                            path,
+                            nfiles,
+                            original_size,
+                            compressed_size,
+                            deduplicated_size,
+                        );
                     }
                     CreateProgress::Finished => {
                         // TODO: Replace this hack with a proper notification
@@ -198,18 +232,19 @@ impl BorgTui {
     }
 
     fn on_tick(&mut self) -> BorgResult<()> {
-        // TODO: Handle several of these.
-        let res = self
-            .recv_channel
-            .try_recv()
-            .map(|cmd| self.handle_command(cmd));
-        let disconnected = matches!(
-            res,
-            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected)
-        );
-        if disconnected {
-            tracing::debug!("TUI channel closed");
-            self.done = true;
+        for _ in 0..Self::POLLING_AMOUNT {
+            let res = self
+                .recv_channel
+                .try_recv()
+                .map(|cmd| self.handle_command(cmd));
+            let disconnected = matches!(
+                res,
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected)
+            );
+            if disconnected {
+                tracing::debug!("TUI channel closed");
+                self.done = true;
+            }
         }
         Ok(())
     }
@@ -244,6 +279,9 @@ impl BorgTui {
                     .unwrap_or_else(Vec::new);
                 if self.backup_state.is_finished(&repo.path) {
                     items.push(ListItem::new(format!("Finished backing {}", repo)))
+                }
+                if let Some(backup_stat) = self.backup_state.backup_stats.get(&repo.path) {
+                    items.insert(0, ListItem::new(format!("# files: {}", backup_stat.0)));
                 }
                 let backup_file_list = List::new(items).block(
                     Block::default()
@@ -292,7 +330,7 @@ impl BorgTui {
         if !self.info_logs.is_empty() {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                .constraints([Constraint::Percentage(40), Constraint::Percentage(60)].as_ref())
                 .split(left);
             let (left_top, left_bottom) = (chunks[0], chunks[1]);
             left = left_top;

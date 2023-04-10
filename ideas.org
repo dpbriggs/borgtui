@@ -8,3 +8,5 @@ CLOSED: [2023-04-09 Sun 09:43]
 ** TODO Have a different screen than backing up files
 ** TODO Have the ability to add backup paths from the tui
 ** TODO Have a chart of the backup speed for each repo
+** TODO Have a severity for info_logs
+** TODO Have both the TUI and non-interactive mode use the same command channel

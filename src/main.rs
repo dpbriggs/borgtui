@@ -38,6 +38,15 @@ async fn handle_tui_command(
     match command {
         Command::CreateBackup(profile) => {
             let (send, mut recv) = mpsc::channel::<MyCreateProgress>(QUEUE_SIZE);
+            if let Err(e) = command_response_send
+                .send(CommandResponse::Info(format!(
+                    "Starting backup of profile {}",
+                    &profile
+                )))
+                .await
+            {
+                error!("Failed to send backup start signal: {}", e);
+            }
             tokio::spawn(async move {
                 while let Some(msg) = recv.recv().await {
                     let res = command_response_send

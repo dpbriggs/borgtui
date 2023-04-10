@@ -42,6 +42,9 @@ pub(crate) async fn create_backup(
         let repo_name_clone = create_option.repository.clone();
         let progress_channel = progress_channel.clone();
         tokio::spawn(async move {
+            // TODO:
+            // if let Err(_) = repo.lock.try_lock() {
+            // }
             let _backup_guard = repo.lock.lock().await;
             while let Some(progress) = create_progress_recv.recv().await {
                 progress_channel
