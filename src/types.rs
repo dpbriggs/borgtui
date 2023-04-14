@@ -3,7 +3,7 @@ pub(crate) type BorgResult<T> = anyhow::Result<T>;
 
 use std::collections::VecDeque;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct RingBuffer<T> {
     deque: VecDeque<T>,
     capacity: usize,

@@ -10,8 +10,10 @@ use crossterm::{
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::debug;
 use tui::layout::Rect;
-use tui::text::Spans;
-use tui::widgets::{Paragraph, Wrap};
+use tui::style::{Color, Modifier, Style};
+use tui::symbols;
+use tui::text::{Span, Spans};
+use tui::widgets::{Axis, Chart, Dataset, GraphType, Paragraph, Wrap};
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
@@ -35,10 +37,35 @@ pub(crate) enum CommandResponse {
     Info(String),
 }
 
+#[derive(Copy, Clone, Debug)]
+struct BackupStat {
+    num_files: u64,
+    original_size: u64,
+    compressed_size: u64,
+    deduplicated_size: u64,
+}
+
+impl BackupStat {
+    fn new(
+        num_files: u64,
+        original_size: u64,
+        compressed_size: u64,
+        deduplicated_size: u64,
+    ) -> Self {
+        Self {
+            num_files,
+            original_size,
+            compressed_size,
+            deduplicated_size,
+        }
+    }
+}
+
 #[derive(Default)]
 // TODO: Move each associated member to their own struct
 struct BackupState {
-    backup_stats: HashMap<String, (u64, u64, u64, u64)>,
+    // TODO: Use an actual struct for this!
+    backup_stats: HashMap<String, RingBuffer<BackupStat>>,
     recently_backed_up_files: HashMap<String, RingBuffer<String>>,
     finished_backing_up: HashSet<String>,
 }
@@ -74,6 +101,7 @@ pub(crate) struct BorgTui {
 impl BorgTui {
     // The number of queued updates to pull per update tick.
     const POLLING_AMOUNT: usize = 10;
+    const BACKUP_STATS_RETENTION_AMOUNT: usize = 100;
 
     pub(crate) fn new(
         profile: Profile,
@@ -181,10 +209,13 @@ impl BorgTui {
         deduplicated_size: u64,
     ) {
         self.insert_recently_backed_up_file(repo.clone(), path);
-        self.backup_state.backup_stats.insert(
-            repo,
-            (num_files, original_size, compressed_size, deduplicated_size),
-        );
+        let backup_stat =
+            BackupStat::new(num_files, original_size, compressed_size, deduplicated_size);
+        self.backup_state
+            .backup_stats
+            .entry(repo)
+            .or_insert_with(|| RingBuffer::new(Self::BACKUP_STATS_RETENTION_AMOUNT))
+            .push_back(backup_stat);
     }
 
     fn insert_recently_backed_up_file(&mut self, repo: String, path: String) {
@@ -249,7 +280,174 @@ impl BorgTui {
         Ok(())
     }
 
+    fn latest_stats_for_repo(&self, repo: &str) -> Option<BackupStat> {
+        self.backup_state
+            .backup_stats
+            .get(repo)
+            .and_then(|rb| rb.back())
+            .copied()
+    }
+
+    fn oldest_stats_for_repo(&self, repo: &str) -> Option<BackupStat> {
+        self.backup_state
+            .backup_stats
+            .get(repo)
+            .and_then(|rb| rb.front())
+            .copied()
+    }
+
+    fn get_backup_stats_for_repo(
+        &self,
+        repo: &str,
+        metric_fn: &dyn Fn(&BackupStat) -> f64,
+    ) -> Option<Vec<(f64, f64)>> {
+        self.backup_state.backup_stats.get(repo).map(|ring_buffer| {
+            ring_buffer
+                .iter()
+                .map(metric_fn)
+                .zip(-99..=0)
+                .map(|(metric, x_axis)| (x_axis as f64, metric))
+                .collect()
+        })
+    }
+
+    // TODO: Make this _much_ nicer
+    fn get_min_and_max_stat_value(
+        &self,
+        metric_fn: &dyn Fn(&BackupStat) -> f64,
+    ) -> Option<(f64, f64)> {
+        let mut min = f64::INFINITY;
+        let mut max = -1.0;
+        for repo in self.profile.repos() {
+            self.backup_state
+                .backup_stats
+                .get(&repo.path)
+                .map(|ring_buffer| {
+                    ring_buffer.iter().map(metric_fn).for_each(|value| {
+                        if value < min {
+                            min = value;
+                        }
+                        if value > max {
+                            max = value;
+                        }
+                    });
+                });
+        }
+        if min == f64::INFINITY || max == -1.0 {
+            None
+        } else {
+            Some((min, max))
+        }
+    }
+
+    fn draw_backup_chart<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        let mut datasets = Vec::new();
+        // TODO: How to make original size look good?
+        let original_size_metrics: Vec<_> = self
+            .profile
+            .repos()
+            .iter()
+            .filter_map(|repo| {
+                self.get_backup_stats_for_repo(&repo.path, &|stat: &BackupStat| {
+                    stat.original_size as f64 / 1048576.0
+                })
+                .map(|item| (repo.path.clone(), item))
+            })
+            .collect();
+        datasets.extend(original_size_metrics.iter().map(|(repo_name, points)| {
+            Dataset::default()
+                .name(repo_name)
+                .marker(symbols::Marker::Braille)
+                .style(Style::default().fg(Color::Red))
+                .graph_type(GraphType::Line)
+                .data(points)
+        }));
+
+        let compressed_size_metrics: Vec<_> = self
+            .profile
+            .repos()
+            .iter()
+            .filter_map(|repo| {
+                self.get_backup_stats_for_repo(&repo.path, &|stat: &BackupStat| {
+                    stat.compressed_size as f64 / 1048576.0
+                })
+                .map(|item| (repo.path.clone(), item))
+            })
+            .collect();
+        datasets.extend(compressed_size_metrics.iter().map(|(repo_name, points)| {
+            Dataset::default()
+                .name(format!("Compression {}", repo_name))
+                .marker(symbols::Marker::Braille)
+                .style(Style::default().fg(Color::Blue))
+                .graph_type(GraphType::Line)
+                .data(points)
+        }));
+        let x_labels = vec![
+            Span::styled(
+                format!("{}", -99),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{}", -50),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{}", 0),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+        ];
+
+        // TODO: Do we need a min and how to make the max nice?
+        let (y_min, y_max) = self
+            .get_min_and_max_stat_value(&|backup_stat: &BackupStat| {
+                backup_stat.original_size as f64 / 1048576.0
+            })
+            .unwrap_or((0.0, 1000.0));
+        let chart = Chart::new(datasets)
+            .block(
+                Block::default()
+                    .title(Span::styled(
+                        "Backup Progress",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL),
+            )
+            .x_axis(
+                Axis::default()
+                    .title("Ticks")
+                    .style(Style::default().fg(Color::Gray))
+                    .labels(x_labels)
+                    .bounds([-99.0, 0.0]),
+            )
+            .y_axis(
+                Axis::default()
+                    .title("size (mb)")
+                    .style(Style::default().fg(Color::Gray))
+                    .labels(vec![
+                        Span::styled(
+                            format!("{}", y_min.trunc()),
+                            Style::default().add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            format!("{}", ((y_min + y_max) / 2.0).trunc()),
+                            Style::default().add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            format!("{}", y_max.trunc()),
+                            Style::default().add_modifier(Modifier::BOLD),
+                        ),
+                    ])
+                    // TODO: Make these bounds dynamic based on the data!
+                    .bounds([y_min, y_max]),
+            );
+        // .hidden_legend_constraints((Constraint::Ratio(1, 1), Constraint::Ratio(1, 1)));
+        frame.render_widget(chart, area);
+    }
+
     fn draw_backup_list<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        // TODO: Handle running out of vertical space!
         let backup_constraints = std::iter::repeat(Constraint::Percentage(
             100 / self.profile.num_repos() as u16,
         ))
@@ -280,8 +478,11 @@ impl BorgTui {
                 if self.backup_state.is_finished(&repo.path) {
                     items.push(ListItem::new(format!("Finished backing {}", repo)))
                 }
-                if let Some(backup_stat) = self.backup_state.backup_stats.get(&repo.path) {
-                    items.insert(0, ListItem::new(format!("# files: {}", backup_stat.0)));
+                if let Some(backup_stat) = self.latest_stats_for_repo(&repo.path) {
+                    items.insert(
+                        0,
+                        ListItem::new(format!("# files: {}", backup_stat.num_files)),
+                    );
                 }
                 let backup_file_list = List::new(items).block(
                     Block::default()
@@ -303,7 +504,6 @@ impl BorgTui {
     }
 
     fn draw_info_logs<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
-        debug!("drawing draw_info_logs");
         let info_log_text = self
             .info_logs
             .iter()
@@ -330,7 +530,7 @@ impl BorgTui {
         if !self.info_logs.is_empty() {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Percentage(40), Constraint::Percentage(60)].as_ref())
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
                 .split(left);
             let (left_top, left_bottom) = (chunks[0], chunks[1]);
             left = left_top;
@@ -340,7 +540,13 @@ impl BorgTui {
         match &self.ui_state {
             UIState::ProfileView => {}
             UIState::BackingUp => {
-                self.draw_backup_list(frame, right);
+                let backing_up_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+                    .split(right);
+                let (top_right, bottom_right) = (backing_up_chunks[0], backing_up_chunks[1]);
+                self.draw_backup_chart(frame, top_right);
+                self.draw_backup_list(frame, bottom_right);
             }
         }
     }
