@@ -252,7 +252,7 @@ impl BorgTui {
                         // TODO: Replace this hack with a proper notification
                         self.backup_state.mark_finished(repo.clone());
                         self.info_logs
-                            .push_back(format!("Finished backing up {}", repo.clone()));
+                            .push_back(format!("Finished backing up {}", repo));
                         debug!("test: {:?}", self.info_logs.is_empty());
                         tracing::info!("Finished backing up {}", repo);
                     }
@@ -311,7 +311,7 @@ impl BorgTui {
         })
     }
 
-    // TODO: Make this _much_ nicer
+    // TODO: Make this _much_ nicer. Do we even need a min?
     fn get_min_and_max_stat_value(
         &self,
         metric_fn: &dyn Fn(&BackupStat) -> f64,
@@ -319,19 +319,16 @@ impl BorgTui {
         let mut min = f64::INFINITY;
         let mut max = -1.0;
         for repo in self.profile.repos() {
-            self.backup_state
-                .backup_stats
-                .get(&repo.path)
-                .map(|ring_buffer| {
-                    ring_buffer.iter().map(metric_fn).for_each(|value| {
-                        if value < min {
-                            min = value;
-                        }
-                        if value > max {
-                            max = value;
-                        }
-                    });
+            if let Some(ring_buffer) = self.backup_state.backup_stats.get(&repo.path) {
+                ring_buffer.iter().map(metric_fn).for_each(|value| {
+                    if value < min {
+                        min = value;
+                    }
+                    if value > max {
+                        max = value;
+                    }
                 });
+            }
         }
         if min == f64::INFINITY || max == -1.0 {
             None
@@ -507,7 +504,7 @@ impl BorgTui {
         let info_log_text = self
             .info_logs
             .iter()
-            .map(|s| Spans::from(format!("> {}\n", s.to_string())))
+            .map(|s| Spans::from(format!("> {}\n", s)))
             .collect::<Vec<_>>();
         let info_panel = Paragraph::new(info_log_text)
             .wrap(Wrap { trim: true })

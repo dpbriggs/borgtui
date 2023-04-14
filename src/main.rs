@@ -12,8 +12,6 @@ use crate::cli::Action;
 use crate::profiles::Profile;
 use crate::types::BorgResult;
 
-use atty;
-
 mod borg;
 mod borgtui;
 mod cli;
@@ -192,7 +190,9 @@ fn main() -> BorgResult<()> {
                 Some(action) => {
                     let (send, recv) = mpsc::channel::<CommandResponse>(QUEUE_SIZE);
                     let handle = tokio::spawn(async move { handle_command_response(recv).await });
-                    handle_action(action, send).await;
+                    if let Err(e) = handle_action(action, send).await {
+                        error!("Error handling CLI action: {}", e)
+                    };
                     handle.await
                 }
                 // TODO: Is failing to join here a bad idea?
