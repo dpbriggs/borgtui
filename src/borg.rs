@@ -1,6 +1,7 @@
 use tokio::sync::mpsc;
 
 use crate::{
+    borgtui::CommandResponse,
     profiles::{Profile, Repository},
     types::BorgResult,
 };
@@ -21,14 +22,14 @@ fn archive_name(name: &str) -> String {
 
 // TODO: Better name
 #[derive(Debug)]
-pub(crate) struct MyCreateProgress {
+pub(crate) struct BorgCreateProgress {
     pub(crate) repository: String,
     pub(crate) create_progress: borg_async::CreateProgress,
 }
 
 pub(crate) async fn create_backup(
     profile: &Profile,
-    progress_channel: mpsc::Sender<MyCreateProgress>,
+    progress_channel: mpsc::Sender<CommandResponse>,
 ) -> BorgResult<()> {
     let archive_name = archive_name(profile.name());
     for (create_option, repo) in profile.borg_create_options(archive_name)? {
@@ -43,15 +44,30 @@ pub(crate) async fn create_backup(
         let progress_channel = progress_channel.clone();
         tokio::spawn(async move {
             // TODO:
-            // if let Err(_) = repo.lock.try_lock() {
-            // }
-            let _backup_guard = repo.lock.lock().await;
-            while let Some(progress) = create_progress_recv.recv().await {
+            if let Err(_) = repo.lock.try_lock() {
                 progress_channel
-                    .send(MyCreateProgress {
-                        repository: repo_name_clone.clone(),
-                        create_progress: progress,
-                    })
+                    .send(CommandResponse::Info(format!(
+                        "A backup is already in progress for {}, waiting...",
+                        repo
+                    )))
+                    .await
+                    .unwrap();
+            }
+            let _backup_guard = repo.lock.lock().await;
+            progress_channel
+                .send(CommandResponse::Info(format!(
+                    "Grabbed repo lock, starting the backup for {}",
+                    repo
+                )))
+                .await
+                .unwrap();
+            while let Some(progress) = create_progress_recv.recv().await {
+                let create_progress = BorgCreateProgress {
+                    repository: repo_name_clone.clone(),
+                    create_progress: progress,
+                };
+                progress_channel
+                    .send(CommandResponse::CreateProgress(create_progress))
                     .await
                     .unwrap();
             }

@@ -1,6 +1,6 @@
 // use crate::cli::Action;
 use crate::types::{BorgResult, RingBuffer};
-use crate::{borg::MyCreateProgress, profiles::Profile};
+use crate::{borg::BorgCreateProgress, profiles::Profile};
 use borgbackup::asynchronous::CreateProgress;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -33,7 +33,7 @@ pub(crate) enum Command {
 
 #[derive(Debug)]
 pub(crate) enum CommandResponse {
-    CreateProgress(MyCreateProgress),
+    CreateProgress(BorgCreateProgress),
     Info(String),
 }
 

@@ -7,11 +7,12 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 use tracing_subscriber::FmtSubscriber;
 
-use crate::borg::MyCreateProgress;
 use crate::borgtui::{BorgTui, Command, CommandResponse};
 use crate::cli::Action;
 use crate::profiles::Profile;
 use crate::types::BorgResult;
+
+use atty;
 
 mod borg;
 mod borgtui;
@@ -37,7 +38,6 @@ async fn handle_tui_command(
 ) -> BorgResult<bool> {
     match command {
         Command::CreateBackup(profile) => {
-            let (send, mut recv) = mpsc::channel::<MyCreateProgress>(QUEUE_SIZE);
             if let Err(e) = command_response_send
                 .send(CommandResponse::Info(format!(
                     "Starting backup of profile {}",
@@ -47,17 +47,7 @@ async fn handle_tui_command(
             {
                 error!("Failed to send backup start signal: {}", e);
             }
-            tokio::spawn(async move {
-                while let Some(msg) = recv.recv().await {
-                    let res = command_response_send
-                        .send(CommandResponse::CreateProgress(msg))
-                        .await;
-                    if let Err(e) = res {
-                        error!("Failed to send create progress: {}", e);
-                    }
-                }
-            });
-            borg::create_backup(&profile, send).await?;
+            borg::create_backup(&profile, command_response_send).await?;
             Ok(false)
         }
         Command::Quit => Ok(true),
@@ -84,7 +74,34 @@ async fn setup_tui() -> BorgResult<JoinHandle<()>> {
     Ok(res)
 }
 
-async fn handle_action(action: Action) -> BorgResult<()> {
+async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandResponse>) {
+    let mut command_response_recv = command_response_recv;
+    while let Some(message) = command_response_recv.recv().await {
+        match message {
+            CommandResponse::CreateProgress(msg) => match msg.create_progress {
+                CreateProgress::Progress {
+                    original_size,
+                    compressed_size,
+                    deduplicated_size,
+                    nfiles,
+                    path,
+                } => info!(
+                    "{}: {} -> {} -> {} ({} files)",
+                    path, original_size, compressed_size, deduplicated_size, nfiles
+                ),
+                CreateProgress::Finished => {
+                    info!("Finished backup for {}", msg.repository)
+                }
+            },
+            CommandResponse::Info(info_log) => info!(info_log),
+        }
+    }
+}
+
+async fn handle_action(
+    action: Action,
+    command_response_send: mpsc::Sender<CommandResponse>,
+) -> BorgResult<()> {
     match action {
         Action::Init => {
             todo!()
@@ -92,25 +109,7 @@ async fn handle_action(action: Action) -> BorgResult<()> {
         Action::Create { profile } => {
             let profile = Profile::try_open_profile_or_create_default(&profile).await?;
             info!("Creating backup for profile {}", profile);
-            let (sender, mut receiver) = mpsc::channel::<MyCreateProgress>(QUEUE_SIZE);
-            tokio::spawn(async move {
-                while let Some(msg) = receiver.recv().await {
-                    match msg.create_progress {
-                        CreateProgress::Progress {
-                            original_size,
-                            compressed_size,
-                            deduplicated_size,
-                            nfiles,
-                            path,
-                        } => info!(
-                            "{}: {} -> {} -> {} ({} files)",
-                            path, original_size, compressed_size, deduplicated_size, nfiles
-                        ),
-                        CreateProgress::Finished => info!("Finished backup"),
-                    }
-                }
-            });
-            borg::create_backup(&profile, sender).await?;
+            borg::create_backup(&profile, command_response_send).await?;
             Ok(())
         }
         Action::Add { directory, profile } => {
@@ -170,14 +169,17 @@ async fn handle_action(action: Action) -> BorgResult<()> {
 
 fn main() -> BorgResult<()> {
     let args = cli::get_args();
+    let is_noninteractive = args.action.is_some();
     let file_appender = tracing_appender::rolling::hourly("/tmp", "borgtui.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(tracing::Level::DEBUG)
-        .with_writer(non_blocking)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)
-        .with_context(|| "setting default subscriber failed")?;
+    let subscriber = FmtSubscriber::builder().with_max_level(tracing::Level::DEBUG);
+    if is_noninteractive {
+        tracing::subscriber::set_global_default(subscriber.finish())
+            .with_context(|| "setting default subscriber failed")?;
+    } else {
+        tracing::subscriber::set_global_default(subscriber.with_writer(non_blocking).finish())
+            .with_context(|| "setting default subscriber failed")?;
+    }
 
     info!("test");
 
@@ -187,7 +189,12 @@ fn main() -> BorgResult<()> {
         .build()?
         .block_on(async {
             let res = match args.action {
-                Some(action) => handle_action(action).await,
+                Some(action) => {
+                    let (send, recv) = mpsc::channel::<CommandResponse>(QUEUE_SIZE);
+                    let handle = tokio::spawn(async move { handle_command_response(recv).await });
+                    handle_action(action, send).await;
+                    handle.await
+                }
                 // TODO: Is failing to join here a bad idea?
                 None => {
                     match setup_tui().await {
