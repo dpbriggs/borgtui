@@ -565,11 +565,16 @@ impl BorgTui {
     fn draw_backup_dirs<B: Backend>(&mut self, frame: &mut Frame<B>, backup_paths_area: Rect) {
         let header_cells = ["Size", "Path"].iter().map(|header| Cell::from(*header));
         let header_row = Row::new(header_cells);
+        let mut total_backup_dir_size = 0;
         let rows = self.profile.backup_paths().iter().map(|path| {
             let size_cell = Cell::from(
                 self.backup_path_sizes
                     .get(path)
-                    .map(|byte_count| format!("{}", PrettyBytes(byte_count.load(Ordering::SeqCst))))
+                    .map(|byte_count| {
+                        let dir_size = byte_count.load(Ordering::SeqCst);
+                        total_backup_dir_size += dir_size;
+                        format!("{}", PrettyBytes(dir_size))
+                    })
                     .unwrap_or_else(|| "??".to_string()),
             );
             let path_cell = Cell::from(path.as_str());
@@ -578,11 +583,10 @@ impl BorgTui {
         let table = Table::new(rows)
             .header(header_row)
             .widths(&[Constraint::Percentage(10), Constraint::Percentage(90)])
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Backup Sources"),
-            );
+            .block(Block::default().borders(Borders::ALL).title(format!(
+                "Backup Sources ({})",
+                PrettyBytes(total_backup_dir_size)
+            )));
         frame.render_widget(table, backup_paths_area);
     }
 
