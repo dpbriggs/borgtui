@@ -179,8 +179,6 @@ fn main() -> BorgResult<()> {
             .with_context(|| "setting default subscriber failed")?;
     }
 
-    info!("test");
-
     let mut tui_join_handle = None;
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()

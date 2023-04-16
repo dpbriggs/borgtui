@@ -37,6 +37,10 @@ impl<T> RingBuffer<T> {
         self.deque.is_empty()
     }
 
+    pub(crate) fn len(&self) -> usize {
+        self.deque.len()
+    }
+
     pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {
         self.deque.iter()
     }

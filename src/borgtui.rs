@@ -78,6 +78,9 @@ impl BackupState {
     fn is_finished(&self, repo: &str) -> bool {
         self.finished_backing_up.contains(repo)
     }
+    fn clear_finished(&mut self) {
+        self.finished_backing_up.clear();
+    }
 }
 
 enum UIState {
@@ -197,6 +200,7 @@ impl BorgTui {
 
     fn start_backing_up(&mut self) {
         self.ui_state = UIState::BackingUp;
+        self.backup_state.clear_finished();
     }
 
     fn record_create_progress(
@@ -465,27 +469,32 @@ impl BorgTui {
                     .get(&repo.path)
                     .map(|ring| {
                         ring.iter()
+                            .take((area.height - 3) as usize)
                             .map(|path| {
-                                let text = Text::from(format!("> {}", path));
+                                let text = Text::from(format!("> {} - {}", area.height, path));
                                 ListItem::new(text)
                             })
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_else(Vec::new);
-                if self.backup_state.is_finished(&repo.path) {
-                    items.push(ListItem::new(format!("Finished backing {}", repo)))
-                }
                 if let Some(backup_stat) = self.latest_stats_for_repo(&repo.path) {
                     items.insert(
                         0,
                         ListItem::new(format!("# files: {}", backup_stat.num_files)),
                     );
                 }
-                let backup_file_list = List::new(items).block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(format!("Backup {}", repo.path)),
-                );
+                let backup_span = if self.backup_state.is_finished(&repo.path) {
+                    Span::styled(
+                        format!("FINISHED Backup {}", repo),
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    Span::from(format!("Backup {}", repo.path))
+                };
+                let backup_file_list = List::new(items)
+                    .block(Block::default().borders(Borders::ALL).title(backup_span));
                 frame.render_widget(backup_file_list, area);
             })
     }
