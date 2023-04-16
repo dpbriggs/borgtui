@@ -124,6 +124,6 @@ impl Display for PrettyBytes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (scaled, precision, unit) = self.scaled_with_unit();
         write!(f, "{0:.1$}", scaled, precision)?;
-        write!(f, "{}", unit)
+        write!(f, " {}", unit)
     }
 }

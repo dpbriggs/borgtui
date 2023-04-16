@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.70"
 atty = "0.2.14"
-borgbackup = { version = "0.6.0", features = ["tokio"] }
+borgbackup = { version = "0.6.1", features = ["tokio"] }
 chrono = "0.4.24"
 clap = { version = "4.2.0", features = ["derive"] }
 crossterm = "0.26.1"

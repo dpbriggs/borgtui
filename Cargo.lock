@@ -252,9 +252,9 @@ dependencies = [
 
 [[package]]
 name = "borgbackup"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4d29a31a30a52ff15719d1f5fa69a481765f4d73f764ff6dd24359cb394a236"
+checksum = "183526b7d9fc24543c5e6fdd0a92be2b4fcee57dd2a030dee4898a6d8486cae2"
 dependencies = [
  "chrono",
  "log",

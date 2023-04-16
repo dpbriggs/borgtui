@@ -525,7 +525,12 @@ impl BorgTui {
                             .add_modifier(Modifier::BOLD),
                     )
                 } else {
-                    Span::from(format!("Backup {}", repo.path))
+                    Span::styled(
+                        format!("Backup {}", repo),
+                        Style::default()
+                            .fg(Color::LightBlue)
+                            .add_modifier(Modifier::BOLD),
+                    )
                 };
                 let backup_file_list = List::new(items)
                     .block(Block::default().borders(Borders::ALL).title(backup_span));
