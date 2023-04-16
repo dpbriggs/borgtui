@@ -16,6 +16,7 @@ use tui::text::{Span, Spans};
 use tui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, Wrap};
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -32,7 +33,7 @@ const BYTES_TO_MEGABYTES_F64: f64 = 1024.0 * 1024.0;
 #[derive(Debug)]
 pub(crate) enum Command {
     CreateBackup(Profile),
-    DetermineDirectorySize(String, Arc<AtomicU64>),
+    DetermineDirectorySize(PathBuf, Arc<AtomicU64>),
     Quit,
 }
 
@@ -97,7 +98,7 @@ enum UIState {
 pub(crate) struct BorgTui {
     tick_rate: Duration,
     profile: Profile,
-    backup_path_sizes: HashMap<String, Arc<AtomicU64>>,
+    backup_path_sizes: HashMap<PathBuf, Arc<AtomicU64>>,
     command_channel: Sender<Command>,
     recv_channel: Receiver<CommandResponse>,
     ui_state: UIState,
@@ -162,7 +163,11 @@ impl BorgTui {
             .iter()
             .for_each(|backup_path| {
                 if let Err(e) = self.send_backup_dir_size_command(backup_path.clone()) {
-                    tracing::error!("Failed to query directory size for {}: {}", backup_path, e);
+                    tracing::error!(
+                        "Failed to query directory size for {}: {}",
+                        backup_path.display(),
+                        e
+                    );
                 }
             });
         loop {
@@ -205,7 +210,7 @@ impl BorgTui {
         }
     }
 
-    fn send_backup_dir_size_command(&mut self, dir: String) -> BorgResult<()> {
+    fn send_backup_dir_size_command(&mut self, dir: PathBuf) -> BorgResult<()> {
         let byte_count = self
             .backup_path_sizes
             .entry(dir.clone())
@@ -553,7 +558,6 @@ impl BorgTui {
         frame.render_widget(info_panel, area);
     }
 
-    // TODO: Make this dynamic and generic over the screen
     fn split_screen<B: Backend>(&self, frame: &mut Frame<B>) -> (Rect, Rect) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
@@ -577,7 +581,8 @@ impl BorgTui {
                     })
                     .unwrap_or_else(|| "??".to_string()),
             );
-            let path_cell = Cell::from(path.as_str());
+            let path_name = format!("{}", path.display());
+            let path_cell = Cell::from(path_name);
             Row::new([size_cell, path_cell])
         });
         let table = Table::new(rows)

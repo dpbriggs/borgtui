@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -7,6 +8,7 @@ use borgbackup::asynchronous::CreateProgress;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 use tracing_subscriber::FmtSubscriber;
+use walkdir::WalkDir;
 
 use crate::borgtui::{BorgTui, Command, CommandResponse};
 use crate::cli::Action;
@@ -31,8 +33,7 @@ fn try_get_initial_repo_password() -> BorgResult<Option<String>> {
     }
 }
 
-fn determine_directory_size(path: String, byte_count: Arc<AtomicU64>) {
-    use walkdir::WalkDir;
+fn determine_directory_size(path: PathBuf, byte_count: Arc<AtomicU64>) {
     for entry in WalkDir::new(path) {
         let entry = match entry {
             Ok(entry) => entry,
@@ -141,14 +142,14 @@ async fn handle_action(
             let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
             profile.add_backup_path(directory.clone()).await?;
             profile.save_profile().await?;
-            info!("Added {} to profile {}", directory, profile);
+            info!("Added {} to profile {}", directory.display(), profile);
             Ok(())
         }
         Action::Remove { directory, profile } => {
             let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
             profile.remove_backup_path(&directory);
             profile.save_profile().await?;
-            info!("Removed {} from profile {}", directory, profile);
+            info!("Removed {} from profile {}", directory.display(), profile);
             Ok(())
         }
         Action::AddRepo {

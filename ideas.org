@@ -5,8 +5,13 @@ CLOSED: [2023-04-01 Sat 15:23]
 CLOSED: [2023-04-02 Sun 10:47]
 ** DONE Use the async borgtui create
 CLOSED: [2023-04-09 Sun 09:43]
-** TODO Have a different screen than backing up files
-** TODO Have the ability to add backup paths from the tui
-** TODO Have a chart of the backup speed for each repo
+** DONE Have a different screen than backing up files
+CLOSED: [2023-04-16 Sun 16:27]
+** DONE Have a chart of the backup speed for each repo
+CLOSED: [2023-04-16 Sun 16:28]
+** DONE Have both the TUI and non-interactive mode use the same command channel
+CLOSED: [2023-04-16 Sun 16:28]
+** DONE Have a basic profile view
+CLOSED: [2023-04-16 Sun 16:28]
 ** TODO Have a severity for info_logs
-** TODO Have both the TUI and non-interactive mode use the same command channel
+** TODO Have the ability to add backup paths from the tui

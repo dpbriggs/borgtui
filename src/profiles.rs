@@ -70,7 +70,7 @@ impl Repository {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Profile {
     name: String,
-    backup_paths: Vec<String>,
+    backup_paths: Vec<PathBuf>,
     // TODO: A proper field for this
     repos: Vec<Repository>,
 }
@@ -136,7 +136,7 @@ impl Profile {
         &self.repos
     }
 
-    pub(crate) fn backup_paths(&self) -> &[String] {
+    pub(crate) fn backup_paths(&self) -> &[PathBuf] {
         &self.backup_paths
     }
 
@@ -168,7 +168,10 @@ impl Profile {
             let mut create_options = CreateOptions::new(
                 repo.path.clone(),
                 archive_name.clone(),
-                self.backup_paths.clone(),
+                self.backup_paths
+                    .iter()
+                    .map(|path| path.to_string_lossy().to_string())
+                    .collect::<Vec<String>>(),
                 vec![],
             );
             create_options.passphrase = repo.get_passphrase()?;
@@ -237,27 +240,25 @@ impl Profile {
         Ok(())
     }
 
-    pub(crate) async fn add_backup_path(&mut self, path: String) -> BorgResult<()> {
-        // TODO: Handle trailing slashes or other weirdness
+    pub(crate) async fn add_backup_path(&mut self, path: PathBuf) -> BorgResult<()> {
         if self.backup_paths.contains(&path) {
             return Err(anyhow::anyhow!(
                 "Path {} already exists in profile {}",
-                path,
+                path.display(),
                 self.name
             ));
         }
         tokio::fs::metadata(&path).await.with_context(|| {
             format!(
                 "Failed to get metadata for path {} when adding to profile {}. Does the path exist?",
-                path, self.name
+                path.display(), self.name
             )
         })?;
         self.backup_paths.push(path);
         Ok(())
     }
 
-    pub(crate) fn remove_backup_path(&mut self, path: &str) {
-        // TODO: Handle trailing slashes or other weirdness
+    pub(crate) fn remove_backup_path(&mut self, path: &Path) {
         self.backup_paths.retain(|p| p != path);
     }
 }

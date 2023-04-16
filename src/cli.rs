@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug, Clone)]
@@ -21,7 +23,7 @@ pub(crate) enum Action {
     /// Add a directory or file to backup
     Add {
         /// The directory or file path to add to backup
-        directory: String, // TODO: Make this a PathBuf
+        directory: PathBuf,
 
         /// The profile to use. If not specified, the default profile
         /// will be used.
@@ -31,7 +33,7 @@ pub(crate) enum Action {
     /// Add a directory or file to backup
     Remove {
         /// The directory or file path to add to backup
-        directory: String, // TODO: Make this a PathBuf
+        directory: PathBuf,
 
         /// The profile to use. If not specified, the default profile
         /// will be used.
