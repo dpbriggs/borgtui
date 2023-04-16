@@ -1,5 +1,5 @@
 // use crate::cli::Action;
-use crate::types::{BorgResult, RingBuffer};
+use crate::types::{BorgResult, PrettyBytes, RingBuffer};
 use crate::{borg::BorgCreateProgress, profiles::Profile};
 use borgbackup::asynchronous::CreateProgress;
 use crossterm::{
@@ -24,6 +24,8 @@ use tui::{
     widgets::{Block, Borders, List, ListItem},
     Frame, Terminal,
 };
+
+const BYTES_TO_MEGABYTES_F64: f64 = 1024.0 * 1024.0;
 
 #[derive(Debug)]
 pub(crate) enum Command {
@@ -292,14 +294,6 @@ impl BorgTui {
             .copied()
     }
 
-    fn oldest_stats_for_repo(&self, repo: &str) -> Option<BackupStat> {
-        self.backup_state
-            .backup_stats
-            .get(repo)
-            .and_then(|rb| rb.front())
-            .copied()
-    }
-
     fn get_backup_stats_for_repo(
         &self,
         repo: &str,
@@ -350,7 +344,7 @@ impl BorgTui {
             .iter()
             .filter_map(|repo| {
                 self.get_backup_stats_for_repo(&repo.path, &|stat: &BackupStat| {
-                    stat.original_size as f64 / 1048576.0
+                    stat.original_size as f64 / BYTES_TO_MEGABYTES_F64
                 })
                 .map(|item| (repo.path.clone(), item))
             })
@@ -370,7 +364,7 @@ impl BorgTui {
             .iter()
             .filter_map(|repo| {
                 self.get_backup_stats_for_repo(&repo.path, &|stat: &BackupStat| {
-                    stat.compressed_size as f64 / 1048576.0
+                    stat.compressed_size as f64 / BYTES_TO_MEGABYTES_F64
                 })
                 .map(|item| (repo.path.clone(), item))
             })
@@ -401,7 +395,7 @@ impl BorgTui {
         // TODO: Do we need a min and how to make the max nice?
         let (y_min, y_max) = self
             .get_min_and_max_stat_value(&|backup_stat: &BackupStat| {
-                backup_stat.original_size as f64 / 1048576.0
+                backup_stat.original_size as f64 / BYTES_TO_MEGABYTES_F64
             })
             .unwrap_or((0.0, 1000.0));
         let chart = Chart::new(datasets)
@@ -424,19 +418,19 @@ impl BorgTui {
             )
             .y_axis(
                 Axis::default()
-                    .title("size (mb)")
+                    .title("Size")
                     .style(Style::default().fg(Color::Gray))
                     .labels(vec![
                         Span::styled(
-                            format!("{}", y_min.trunc()),
+                            format!("{}", PrettyBytes::from_megabytes_f64(y_min)),
                             Style::default().add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
-                            format!("{}", ((y_min + y_max) / 2.0).trunc()),
+                            format!("{}", PrettyBytes::from_megabytes_f64((y_min + y_max) / 2.0)),
                             Style::default().add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
-                            format!("{}", y_max.trunc()),
+                            format!("{}", PrettyBytes::from_megabytes_f64(y_max)),
                             Style::default().add_modifier(Modifier::BOLD),
                         ),
                     ])
@@ -480,7 +474,11 @@ impl BorgTui {
                 if let Some(backup_stat) = self.latest_stats_for_repo(&repo.path) {
                     items.insert(
                         0,
-                        ListItem::new(format!("# files: {}", backup_stat.num_files)),
+                        ListItem::new(format!(
+                            "# files: {} (deduplicated: {})",
+                            backup_stat.num_files,
+                            PrettyBytes(backup_stat.deduplicated_size),
+                        )),
                     );
                 }
                 let backup_span = if self.backup_state.is_finished(&repo.path) {

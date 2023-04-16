@@ -1,7 +1,7 @@
 #![allow(unused)]
 pub(crate) type BorgResult<T> = anyhow::Result<T>;
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, fmt::Display};
 
 #[derive(Debug, Default)]
 pub(crate) struct RingBuffer<T> {
@@ -95,5 +95,35 @@ mod tests {
             big.iter().copied().collect::<Vec<_>>(),
             (769..=1024).collect::<Vec<_>>()
         );
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub(crate) struct PrettyBytes(pub(crate) u64);
+
+impl PrettyBytes {
+    const UNITS: [&'static str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+
+    fn scaled_with_unit(&self) -> (f64, usize, &'static str) {
+        let index = ((self.0 as f64).ln() / 1024_f64.ln()).trunc() as usize;
+        match Self::UNITS.get(index) {
+            Some(unit) => {
+                let precision = if index < 3 { 0 } else { 3 };
+                (self.0 as f64 / 1024f64.powf(index as f64), precision, unit)
+            }
+            None => (self.0 as f64, 0, "B"),
+        }
+    }
+
+    pub(crate) fn from_megabytes_f64(kb: f64) -> Self {
+        PrettyBytes((kb * 1024.0 * 1024.0).trunc() as u64)
+    }
+}
+
+impl Display for PrettyBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (scaled, precision, unit) = self.scaled_with_unit();
+        write!(f, "{0:.1$}", scaled, precision)?;
+        write!(f, "{}", unit)
     }
 }
