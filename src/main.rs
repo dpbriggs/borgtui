@@ -1,8 +1,9 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use anyhow::{bail, Context};
 use borgbackup::asynchronous::CreateProgress;
-// use once_cell::sync::OnceCell;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 use tracing_subscriber::FmtSubscriber;
@@ -30,6 +31,28 @@ fn try_get_initial_repo_password() -> BorgResult<Option<String>> {
     }
 }
 
+fn determine_directory_size(path: String, byte_count: Arc<AtomicU64>) {
+    use walkdir::WalkDir;
+    for entry in WalkDir::new(path) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                error!("Failed to read entry: {}", e);
+                continue;
+            }
+        };
+        match entry.metadata() {
+            Ok(metadata) => {
+                byte_count.fetch_add(metadata.len(), Ordering::SeqCst);
+            }
+            Err(e) => {
+                error!("Failed to obtain metadata for entry {:?}: {}", entry, e);
+            }
+        }
+    }
+}
+
+/// Returns Ok(true) to exit the program.
 async fn handle_tui_command(
     command: Command,
     command_response_send: mpsc::Sender<CommandResponse>,
@@ -46,6 +69,10 @@ async fn handle_tui_command(
                 error!("Failed to send backup start signal: {}", e);
             }
             borg::create_backup(&profile, command_response_send).await?;
+            Ok(false)
+        }
+        Command::DetermineDirectorySize(path, byte_count_atomic) => {
+            tokio::task::spawn_blocking(|| determine_directory_size(path, byte_count_atomic));
             Ok(false)
         }
         Command::Quit => Ok(true),
@@ -121,7 +148,7 @@ async fn handle_action(
             let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
             profile.remove_backup_path(&directory);
             profile.save_profile().await?;
-            info!("Added {} to profile {}", directory, profile);
+            info!("Removed {} from profile {}", directory, profile);
             Ok(())
         }
         Action::AddRepo {

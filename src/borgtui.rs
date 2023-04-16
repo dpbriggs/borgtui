@@ -8,14 +8,16 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::debug;
+use tracing::{debug, info};
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
 use tui::symbols;
 use tui::text::{Span, Spans};
-use tui::widgets::{Axis, Chart, Dataset, GraphType, Paragraph, Wrap};
+use tui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, Wrap};
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -30,6 +32,7 @@ const BYTES_TO_MEGABYTES_F64: f64 = 1024.0 * 1024.0;
 #[derive(Debug)]
 pub(crate) enum Command {
     CreateBackup(Profile),
+    DetermineDirectorySize(String, Arc<AtomicU64>),
     Quit,
 }
 
@@ -94,6 +97,7 @@ enum UIState {
 pub(crate) struct BorgTui {
     tick_rate: Duration,
     profile: Profile,
+    backup_path_sizes: HashMap<String, Arc<AtomicU64>>,
     command_channel: Sender<Command>,
     recv_channel: Receiver<CommandResponse>,
     ui_state: UIState,
@@ -116,6 +120,7 @@ impl BorgTui {
         BorgTui {
             tick_rate: Duration::from_millis(16),
             profile,
+            backup_path_sizes: HashMap::new(),
             command_channel,
             recv_channel,
             ui_state: UIState::ProfileView,
@@ -151,6 +156,15 @@ impl BorgTui {
 
     fn run_app<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> BorgResult<()> {
         let mut last_tick = Instant::now();
+        self.profile
+            .backup_paths()
+            .to_vec()
+            .iter()
+            .for_each(|backup_path| {
+                if let Err(e) = self.send_backup_dir_size_command(backup_path.clone()) {
+                    tracing::error!("Failed to query directory size for {}: {}", backup_path, e);
+                }
+            });
         loop {
             if self.done {
                 return Ok(());
@@ -176,6 +190,10 @@ impl BorgTui {
                             self.start_backing_up();
                             self.send_create_command()?;
                         }
+                        KeyCode::Char('p') => match self.ui_state {
+                            UIState::ProfileView => self.ui_state = UIState::BackingUp,
+                            UIState::BackingUp => self.ui_state = UIState::ProfileView,
+                        },
                         _ => {}
                     }
                 }
@@ -185,6 +203,17 @@ impl BorgTui {
                 last_tick = Instant::now();
             }
         }
+    }
+
+    fn send_backup_dir_size_command(&mut self, dir: String) -> BorgResult<()> {
+        let byte_count = self
+            .backup_path_sizes
+            .entry(dir.clone())
+            .or_default()
+            .clone();
+        self.command_channel
+            .blocking_send(Command::DetermineDirectorySize(dir, byte_count))?;
+        Ok(())
     }
 
     fn send_create_command(&mut self) -> BorgResult<()> {
@@ -264,7 +293,10 @@ impl BorgTui {
                     }
                 }
             }
-            CommandResponse::Info(info_string) => self.info_logs.push_back(info_string),
+            CommandResponse::Info(info_string) => {
+                info!(info_string); // Make sure it ends up in the logfile
+                self.info_logs.push_back(info_string)
+            }
         }
     }
 
@@ -463,9 +495,8 @@ impl BorgTui {
                     .get(&repo.path)
                     .map(|ring| {
                         ring.iter()
-                            .take((area.height - 3) as usize)
                             .map(|path| {
-                                let text = Text::from(format!("> {} - {}", area.height, path));
+                                let text = Text::from(format!("> {}", path));
                                 ListItem::new(text)
                             })
                             .collect::<Vec<_>>()
@@ -498,12 +529,15 @@ impl BorgTui {
     }
 
     fn draw_info_panel<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        // TODO: Make something generic here
         let text = vec![
-            Spans::from("Press 'q' to quit"),
-            Spans::from("Press 'u' to backup"),
+            Spans::from("• Press 'q' to quit"),
+            Spans::from("• Press 'u' to backup"),
+            Spans::from("• Press 'p' to toggle profile"),
         ];
-        let info_panel =
-            Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("borgtui"));
+        let info_panel = Paragraph::new(text)
+            .wrap(Wrap { trim: true })
+            .block(Block::default().borders(Borders::ALL).title("borgtui"));
         frame.render_widget(info_panel, area);
     }
 
@@ -528,6 +562,70 @@ impl BorgTui {
         (chunks[0], chunks[1])
     }
 
+    fn draw_backup_dirs<B: Backend>(&mut self, frame: &mut Frame<B>, backup_paths_area: Rect) {
+        let header_cells = ["Size", "Path"].iter().map(|header| Cell::from(*header));
+        let header_row = Row::new(header_cells);
+        let rows = self.profile.backup_paths().iter().map(|path| {
+            let size_cell = Cell::from(
+                self.backup_path_sizes
+                    .get(path)
+                    .map(|byte_count| format!("{}", PrettyBytes(byte_count.load(Ordering::SeqCst))))
+                    .unwrap_or_else(|| "??".to_string()),
+            );
+            let path_cell = Cell::from(path.as_str());
+            Row::new([size_cell, path_cell])
+        });
+        let table = Table::new(rows)
+            .header(header_row)
+            .widths(&[Constraint::Percentage(10), Constraint::Percentage(90)])
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Backup Sources"),
+            );
+        frame.render_widget(table, backup_paths_area);
+    }
+
+    fn draw_profile_view<B: Backend>(
+        &mut self,
+        frame: &mut Frame<B>,
+        repo_area: Rect,
+        backup_paths_area: Rect,
+    ) {
+        let repo_items: Vec<_> = self
+            .profile
+            .repos()
+            .iter()
+            .map(|repo| ListItem::new(repo.path.clone()))
+            .collect();
+        let repo_list = List::new(repo_items)
+            .block(Block::default().borders(Borders::ALL).title("Repositories"));
+        frame.render_widget(repo_list, repo_area);
+        self.draw_backup_dirs(frame, backup_paths_area);
+    }
+
+    fn draw_main_right_panel<B: Backend>(&mut self, frame: &mut Frame<B>, right_area: Rect) {
+        match &self.ui_state {
+            UIState::ProfileView => {
+                let profile_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(40), Constraint::Percentage(60)].as_ref())
+                    .split(right_area);
+                let (repo_area, backup_paths_area) = (profile_chunks[0], profile_chunks[1]);
+                self.draw_profile_view(frame, repo_area, backup_paths_area);
+            }
+            UIState::BackingUp => {
+                let backing_up_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(40), Constraint::Percentage(60)].as_ref())
+                    .split(right_area);
+                let (top_right, bottom_right) = (backing_up_chunks[0], backing_up_chunks[1]);
+                self.draw_backup_chart(frame, top_right);
+                self.draw_backup_list(frame, bottom_right);
+            }
+        }
+    }
+
     fn draw_ui<B: Backend>(&mut self, frame: &mut Frame<B>) {
         // TODO: Calculate chunks based on number of repos
         let (mut left, right) = self.split_screen(frame);
@@ -541,17 +639,6 @@ impl BorgTui {
             self.draw_info_logs(frame, left_bottom);
         }
         self.draw_info_panel(frame, left);
-        match &self.ui_state {
-            UIState::ProfileView => {}
-            UIState::BackingUp => {
-                let backing_up_chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                    .split(right);
-                let (top_right, bottom_right) = (backing_up_chunks[0], backing_up_chunks[1]);
-                self.draw_backup_chart(frame, top_right);
-                self.draw_backup_list(frame, bottom_right);
-            }
-        }
+        self.draw_main_right_panel(frame, right);
     }
 }

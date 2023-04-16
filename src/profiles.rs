@@ -133,6 +133,10 @@ impl Profile {
         &self.repos
     }
 
+    pub(crate) fn backup_paths(&self) -> &[String] {
+        &self.backup_paths
+    }
+
     pub(crate) fn num_repos(&self) -> usize {
         self.repos.len()
     }
