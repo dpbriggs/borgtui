@@ -101,10 +101,9 @@ pub(crate) async fn list_archives(repo: &Repository) -> BorgResult<()> {
     match borg_async::list(&list_options, &CommonOptions::default()).await {
         Ok(l) => {
             info!("Archives in repo {}: {:?}", repo.get_path(), l);
-            // TODO: This is a bug in borgbackup, these fields should be public
-            // for archive in l.archives {
-            //     info!("Archive: {:?}", archive);
-            // }
+            for archive in l.archives {
+                info!("Archive: {:?}", archive);
+            }
         }
         Err(e) => bail!(
             "Failed to list archives in repo {}: {:?}",

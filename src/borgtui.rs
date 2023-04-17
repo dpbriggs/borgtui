@@ -538,12 +538,16 @@ impl BorgTui {
             })
     }
 
+    fn draw_all_archive_lists<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {}
+    fn draw_archive_list<B: Backend>(&self, repo: &(), frame: &mut Frame<B>, area: Rect) {}
+
     fn draw_info_panel<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
         // TODO: Make something generic here
         let text = vec![
             Spans::from("• Press 'q' to quit"),
             Spans::from("• Press 'u' to backup"),
             Spans::from("• Press 'p' to toggle profile"),
+            Spans::from("• Press 'l' to list archives"),
         ];
         let info_panel = Paragraph::new(text)
             .wrap(Wrap { trim: true })

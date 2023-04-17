@@ -15,3 +15,4 @@ CLOSED: [2023-04-16 Sun 16:28]
 CLOSED: [2023-04-16 Sun 16:28]
 ** TODO Have a severity for info_logs
 ** TODO Have the ability to add backup paths from the tui
+** TODO Have the ability to list archives per-repo
