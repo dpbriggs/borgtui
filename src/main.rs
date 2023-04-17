@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 use crate::borgtui::{BorgTui, Command, CommandResponse};
 use crate::cli::Action;
 use crate::profiles::Profile;
-use crate::types::BorgResult;
+use crate::types::{BorgResult, PrettyBytes};
 
 mod borg;
 mod borgtui;
@@ -113,7 +113,11 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
                     path,
                 } => info!(
                     "{}: {} -> {} -> {} ({} files)",
-                    path, original_size, compressed_size, deduplicated_size, nfiles
+                    path,
+                    PrettyBytes(original_size),
+                    PrettyBytes(compressed_size),
+                    PrettyBytes(deduplicated_size),
+                    nfiles
                 ),
                 CreateProgress::Finished => {
                     info!("Finished backup for {}", msg.repository)
