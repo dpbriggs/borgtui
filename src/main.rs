@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 use crate::borgtui::{BorgTui, Command, CommandResponse};
 use crate::cli::Action;
 use crate::profiles::Profile;
-use crate::types::{BorgResult, PrettyBytes};
+use crate::types::{send_info, BorgResult, PrettyBytes};
 
 mod borg;
 mod borgtui;
@@ -60,15 +60,11 @@ async fn handle_tui_command(
 ) -> BorgResult<bool> {
     match command {
         Command::CreateBackup(profile) => {
-            if let Err(e) = command_response_send
-                .send(CommandResponse::Info(format!(
-                    "Starting backup of profile {}",
-                    &profile
-                )))
-                .await
-            {
-                error!("Failed to send backup start signal: {}", e);
-            }
+            send_info!(
+                command_response_send,
+                format!("Starting backup of profile {}", &profile),
+                "Failed to send backup start signal: {}"
+            );
             borg::create_backup(&profile, command_response_send).await?;
             Ok(false)
         }
@@ -76,6 +72,25 @@ async fn handle_tui_command(
             tokio::task::spawn_blocking(|| determine_directory_size(path, byte_count_atomic));
             Ok(false)
         }
+        Command::ListArchives(repo) => {
+            tokio::spawn(async move {
+                match borg::list_archives(&repo).await {
+                    Ok(res) => {
+                        if let Err(e) = command_response_send
+                            .send(CommandResponse::ListArchiveResult(res))
+                            .await
+                        {
+                            error!("Failed to send ListArchiveResult for {}: {}", repo, e);
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to list archives for {}: {}", repo, e);
+                    }
+                }
+            });
+            Ok(false)
+        }
+
         Command::Quit => Ok(true),
     }
 }
@@ -124,6 +139,10 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
                 }
             },
             CommandResponse::Info(info_log) => info!(info_log),
+            CommandResponse::ListArchiveResult(list_archive_result) => {
+                // TODO: Print this out in a more informative way
+                info!("{:?}", list_archive_result)
+            }
         }
     }
 }

@@ -1,15 +1,15 @@
-use tokio::sync::mpsc;
-
 use crate::{
     borgtui::CommandResponse,
     profiles::{Profile, Repository},
-    types::BorgResult,
+    types::{send_info, BorgResult},
 };
-use anyhow::bail;
+use anyhow::anyhow;
 use borgbackup::{
     asynchronous as borg_async,
     common::{CommonOptions, ListOptions},
+    output::list::ListRepository,
 };
+use tokio::sync::mpsc;
 use tracing::{error, info};
 
 fn archive_name(name: &str) -> String {
@@ -20,7 +20,6 @@ fn archive_name(name: &str) -> String {
     )
 }
 
-// TODO: Better name
 #[derive(Debug)]
 pub(crate) struct BorgCreateProgress {
     pub(crate) repository: String,
@@ -43,38 +42,33 @@ pub(crate) async fn create_backup(
         let repo_name_clone = create_option.repository.clone();
         let progress_channel = progress_channel.clone();
         tokio::spawn(async move {
-            // TODO:
             if repo.lock.try_lock().is_err() {
-                progress_channel
-                    .send(CommandResponse::Info(format!(
-                        "A backup is already in progress for {}, waiting...",
-                        repo
-                    )))
-                    .await
-                    .unwrap();
+                send_info!(
+                    progress_channel,
+                    format!("A backup is already in progress for {}, waiting...", repo)
+                );
             }
             let _backup_guard = repo.lock.lock().await;
-            progress_channel
-                .send(CommandResponse::Info(format!(
-                    "Grabbed repo lock, starting the backup for {}",
-                    repo
-                )))
-                .await
-                .unwrap();
+            send_info!(
+                progress_channel,
+                format!("Grabbed repo lock, starting the backup for {}", repo)
+            );
             while let Some(progress) = create_progress_recv.recv().await {
                 let create_progress = BorgCreateProgress {
                     repository: repo_name_clone.clone(),
                     create_progress: progress,
                 };
-                progress_channel
+                if let Err(e) = progress_channel
                     .send(CommandResponse::CreateProgress(create_progress))
                     .await
-                    .unwrap();
+                {
+                    error!("Failed to send CreateProgress update: {}", e);
+                }
             }
         });
 
         tokio::spawn(async move {
-            match borgbackup::asynchronous::create_progress(
+            match borg_async::create_progress(
                 &create_option,
                 &CommonOptions::default(),
                 create_progress_send,
@@ -93,23 +87,18 @@ pub(crate) async fn create_backup(
     Ok(())
 }
 
-pub(crate) async fn list_archives(repo: &Repository) -> BorgResult<()> {
+pub(crate) async fn list_archives(repo: &Repository) -> BorgResult<ListRepository> {
     let list_options = ListOptions {
         repository: repo.get_path(),
         passphrase: repo.get_passphrase()?,
     };
-    match borg_async::list(&list_options, &CommonOptions::default()).await {
-        Ok(l) => {
-            info!("Archives in repo {}: {:?}", repo.get_path(), l);
-            for archive in l.archives {
-                info!("Archive: {:?}", archive);
-            }
-        }
-        Err(e) => bail!(
-            "Failed to list archives in repo {}: {:?}",
-            repo.get_path(),
-            e
-        ),
-    }
-    Ok(())
+    borg_async::list(&list_options, &CommonOptions::default())
+        .await
+        .map_err(|e| {
+            anyhow!(
+                "Failed to list archives in repo {}: {:?}",
+                repo.get_path(),
+                e
+            )
+        })
 }

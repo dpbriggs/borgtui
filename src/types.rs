@@ -3,6 +3,24 @@ pub(crate) type BorgResult<T> = anyhow::Result<T>;
 
 use std::{collections::VecDeque, fmt::Display};
 
+/// Send a CommandResponse::Info in a channel.
+macro_rules! send_info {
+    ($channel:expr, $info_message:expr) => {
+        if let Err(e) = $channel.send(CommandResponse::Info($info_message)).await {
+            error!(
+                "Error occurred while sending info message \"{}\": {}",
+                $info_message, e
+            );
+        }
+    };
+    ($channel:expr, $info_message:expr, $error_message:expr) => {
+        if let Err(e) = $channel.send(CommandResponse::Info($info_message)).await {
+            error!($error_message, e);
+        }
+    };
+}
+pub(crate) use send_info;
+
 #[derive(Debug, Default)]
 pub(crate) struct RingBuffer<T> {
     deque: VecDeque<T>,

@@ -1,7 +1,9 @@
+use crate::profiles::Repository;
 // use crate::cli::Action;
 use crate::types::{BorgResult, PrettyBytes, RingBuffer};
 use crate::{borg::BorgCreateProgress, profiles::Profile};
 use borgbackup::asynchronous::CreateProgress;
+use borgbackup::output::list::ListRepository;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -33,6 +35,8 @@ const BYTES_TO_MEGABYTES_F64: f64 = 1024.0 * 1024.0;
 #[derive(Debug)]
 pub(crate) enum Command {
     CreateBackup(Profile),
+    // TODO: Don't use a full repo here!
+    ListArchives(Repository),
     DetermineDirectorySize(PathBuf, Arc<AtomicU64>),
     Quit,
 }
@@ -40,6 +44,7 @@ pub(crate) enum Command {
 #[derive(Debug)]
 pub(crate) enum CommandResponse {
     CreateProgress(BorgCreateProgress),
+    ListArchiveResult(ListRepository),
     Info(String),
 }
 
@@ -92,6 +97,7 @@ impl BackupState {
 enum UIState {
     ProfileView,
     BackingUp,
+    ListAllArchives,
 }
 
 // TODO: Consider encapsulating these different states into their own struct
@@ -104,6 +110,7 @@ pub(crate) struct BorgTui {
     ui_state: UIState,
     // This is not an enum field to make it easier to tab while a backup is in progress.
     backup_state: BackupState,
+    list_archives_state: HashMap<String, ListRepository>,
     info_logs: RingBuffer<String>,
     done: bool,
 }
@@ -126,6 +133,7 @@ impl BorgTui {
             recv_channel,
             ui_state: UIState::ProfileView,
             backup_state: BackupState::default(),
+            list_archives_state: HashMap::new(),
             info_logs: RingBuffer::new(10),
             done: false,
         }
@@ -195,9 +203,15 @@ impl BorgTui {
                             self.start_backing_up();
                             self.send_create_command()?;
                         }
+                        KeyCode::Char('l') => {
+                            self.start_list_archive_state();
+                            self.send_list_archives_command()?;
+                        }
+                        // TODO: Have a "previous state" variable and toggle back to that.
                         KeyCode::Char('p') => match self.ui_state {
                             UIState::ProfileView => self.ui_state = UIState::BackingUp,
                             UIState::BackingUp => self.ui_state = UIState::ProfileView,
+                            UIState::ListAllArchives => self.ui_state = UIState::ProfileView,
                         },
                         _ => {}
                     }
@@ -222,9 +236,16 @@ impl BorgTui {
     }
 
     fn send_create_command(&mut self) -> BorgResult<()> {
-        let profile = self.profile.clone();
-        let command = Command::CreateBackup(profile);
+        let command = Command::CreateBackup(self.profile.clone());
         self.command_channel.blocking_send(command)?;
+        Ok(())
+    }
+
+    fn send_list_archives_command(&mut self) -> BorgResult<()> {
+        for repo in self.profile.repos() {
+            let command = Command::ListArchives(repo.clone());
+            self.command_channel.blocking_send(command)?;
+        }
         Ok(())
     }
 
@@ -237,6 +258,11 @@ impl BorgTui {
     fn start_backing_up(&mut self) {
         self.ui_state = UIState::BackingUp;
         self.backup_state.clear_finished();
+    }
+
+    fn start_list_archive_state(&mut self) {
+        self.ui_state = UIState::ListAllArchives;
+        // self.backup_state.clear_finished();
     }
 
     fn record_create_progress(
@@ -301,6 +327,12 @@ impl BorgTui {
             CommandResponse::Info(info_string) => {
                 info!(info_string); // Make sure it ends up in the logfile
                 self.info_logs.push_back(info_string)
+            }
+            CommandResponse::ListArchiveResult(list_archive_result) => {
+                self.list_archives_state.insert(
+                    list_archive_result.repository.location.clone(),
+                    list_archive_result,
+                );
             }
         }
     }
@@ -538,8 +570,47 @@ impl BorgTui {
             })
     }
 
-    fn draw_all_archive_lists<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {}
-    fn draw_archive_list<B: Backend>(&self, repo: &(), frame: &mut Frame<B>, area: Rect) {}
+    fn draw_all_archive_lists<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        // (RepoName, Option<ListArchive>)
+        let repos_with_archives: Vec<_> = self
+            .profile
+            .repos()
+            .iter()
+            .map(|repo| {
+                (
+                    repo.path.clone(),
+                    self.list_archives_state.get(&repo.path).cloned(),
+                )
+            })
+            .collect();
+        let backup_constraints = std::iter::repeat(Constraint::Percentage(
+            100 / repos_with_archives.len() as u16,
+        ))
+        .take(self.profile.num_repos())
+        .collect::<Vec<_>>();
+        let areas = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(backup_constraints.as_ref())
+            .split(area);
+        for ((repo_name, list_archive), area) in repos_with_archives.into_iter().zip(areas) {
+            let list_items = match list_archive {
+                Some(list_archive) => {
+                    // TODO: Consider using a table to show the date!
+                    list_archive
+                        .archives
+                        .iter()
+                        .rev() // TODO: Don't reverse in the UI. Make the original data in descending order
+                        .map(|archive| ListItem::new(archive.name.clone()))
+                        .collect()
+                }
+                None => vec![ListItem::new("Still fetching...")],
+            };
+            let repo_list = List::new(list_items)
+                .block(Block::default().borders(Borders::ALL).title(repo_name));
+            frame.render_widget(repo_list, area)
+        }
+    }
+    // fn draw_archive_list<B: Backend>(&self, repo: &(), frame: &mut Frame<B>, area: Rect) {}
 
     fn draw_info_panel<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
         // TODO: Make something generic here
@@ -640,6 +711,9 @@ impl BorgTui {
                 let (top_right, bottom_right) = (backing_up_chunks[0], backing_up_chunks[1]);
                 self.draw_backup_chart(frame, top_right);
                 self.draw_backup_list(frame, bottom_right);
+            }
+            UIState::ListAllArchives => {
+                self.draw_all_archive_lists(frame, right_area);
             }
         }
     }
