@@ -94,6 +94,17 @@ impl BackupState {
     }
 }
 
+macro_rules! toggle_to_previous_state_or_run {
+    ($self:expr, $associated_state:expr, $to_run:block) => {
+        if !$self.is_a_toggle_to_previous_screen($associated_state) {
+            $to_run
+        } else {
+            $self.toggle_to_previous_screen()
+        }
+    };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum UIState {
     ProfileView,
     BackingUp,
@@ -108,6 +119,7 @@ pub(crate) struct BorgTui {
     command_channel: Sender<Command>,
     recv_channel: Receiver<CommandResponse>,
     ui_state: UIState,
+    previous_ui_state: Option<UIState>,
     // This is not an enum field to make it easier to tab while a backup is in progress.
     backup_state: BackupState,
     list_archives_state: HashMap<String, ListRepository>,
@@ -132,6 +144,7 @@ impl BorgTui {
             command_channel,
             recv_channel,
             ui_state: UIState::ProfileView,
+            previous_ui_state: None,
             backup_state: BackupState::default(),
             list_archives_state: HashMap::new(),
             info_logs: RingBuffer::new(10),
@@ -200,19 +213,23 @@ impl BorgTui {
                             return Ok(());
                         }
                         KeyCode::Char('u') => {
-                            self.start_backing_up();
-                            self.send_create_command()?;
+                            toggle_to_previous_state_or_run!(self, UIState::BackingUp, {
+                                self.start_backing_up();
+                                self.send_create_command()?;
+                            });
                         }
                         KeyCode::Char('l') => {
-                            self.start_list_archive_state();
-                            self.send_list_archives_command()?;
+                            toggle_to_previous_state_or_run!(self, UIState::ListAllArchives, {
+                                self.start_list_archive_state();
+                                self.send_list_archives_command()?;
+                            });
                         }
                         // TODO: Have a "previous state" variable and toggle back to that.
-                        KeyCode::Char('p') => match self.ui_state {
-                            UIState::ProfileView => self.ui_state = UIState::BackingUp,
-                            UIState::BackingUp => self.ui_state = UIState::ProfileView,
-                            UIState::ListAllArchives => self.ui_state = UIState::ProfileView,
-                        },
+                        KeyCode::Char('p') => {
+                            toggle_to_previous_state_or_run!(self, UIState::ProfileView, {
+                                self.switch_ui_state(UIState::ProfileView);
+                            });
+                        }
                         _ => {}
                     }
                 }
@@ -255,14 +272,29 @@ impl BorgTui {
         Ok(())
     }
 
+    fn is_a_toggle_to_previous_screen(&self, associated_state: UIState) -> bool {
+        self.ui_state == associated_state
+    }
+
+    fn toggle_to_previous_screen(&mut self) {
+        if let Some(previous_state) = self.previous_ui_state {
+            self.previous_ui_state = Some(self.ui_state);
+            self.ui_state = previous_state;
+        }
+    }
+
+    fn switch_ui_state(&mut self, new_state: UIState) {
+        self.previous_ui_state = Some(self.ui_state);
+        self.ui_state = new_state
+    }
+
     fn start_backing_up(&mut self) {
-        self.ui_state = UIState::BackingUp;
+        self.switch_ui_state(UIState::BackingUp);
         self.backup_state.clear_finished();
     }
 
     fn start_list_archive_state(&mut self) {
-        self.ui_state = UIState::ListAllArchives;
-        // self.backup_state.clear_finished();
+        self.switch_ui_state(UIState::ListAllArchives);
     }
 
     fn record_create_progress(
