@@ -4,6 +4,7 @@ use crate::types::{BorgResult, PrettyBytes, RingBuffer};
 use crate::{borg::BorgCreateProgress, profiles::Profile};
 use borgbackup::asynchronous::CreateProgress;
 use borgbackup::output::list::ListRepository;
+use crossterm::event::KeyEvent;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -111,6 +112,12 @@ enum UIState {
     ListAllArchives,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum EditingState {
+    Normal,
+    Editing,
+}
+
 // TODO: Consider encapsulating these different states into their own struct
 pub(crate) struct BorgTui {
     tick_rate: Duration,
@@ -120,6 +127,9 @@ pub(crate) struct BorgTui {
     recv_channel: Receiver<CommandResponse>,
     ui_state: UIState,
     previous_ui_state: Option<UIState>,
+    editing_state: EditingState,
+    input_buffer: String,
+    popup_required: bool,
     // This is not an enum field to make it easier to tab while a backup is in progress.
     backup_state: BackupState,
     list_archives_state: HashMap<String, ListRepository>,
@@ -145,6 +155,9 @@ impl BorgTui {
             recv_channel,
             ui_state: UIState::ProfileView,
             previous_ui_state: None,
+            input_buffer: String::new(),
+            popup_required: false,
+            editing_state: EditingState::Normal,
             backup_state: BackupState::default(),
             list_archives_state: HashMap::new(),
             info_logs: RingBuffer::new(10),
@@ -172,6 +185,41 @@ impl BorgTui {
 
         if let Err(e) = res {
             tracing::error!("Failed to run app: {}", e);
+        }
+        Ok(())
+    }
+
+    fn handle_keyboard_input(&mut self, key: KeyEvent) -> BorgResult<()> {
+        match key.code {
+            KeyCode::Char('q') => {
+                self.done = true;
+                // TODO: Block on any remaining borg backups
+                self.send_quit_command()?;
+                return Ok(());
+            }
+            KeyCode::Char('u') => {
+                toggle_to_previous_state_or_run!(self, UIState::BackingUp, {
+                    self.start_backing_up();
+                    self.send_create_command()?;
+                });
+            }
+            KeyCode::Char('l') => {
+                toggle_to_previous_state_or_run!(self, UIState::ListAllArchives, {
+                    self.start_list_archive_state();
+                    self.send_list_archives_command()?;
+                });
+            }
+            // TODO: Have a "previous state" variable and toggle back to that.
+            KeyCode::Char('p') => {
+                toggle_to_previous_state_or_run!(self, UIState::ProfileView, {
+                    self.switch_ui_state(UIState::ProfileView);
+                });
+            }
+            KeyCode::Char('a') => {
+                self.editing_state = EditingState::Editing;
+                self.popup_required = true;
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -205,32 +253,22 @@ impl BorgTui {
                 .unwrap_or_else(|| Duration::from_secs(0));
             if crossterm::event::poll(timeout)? {
                 if let Event::Key(key) = event::read()? {
-                    match key.code {
-                        KeyCode::Char('q') => {
-                            self.done = true;
-                            // TODO: Block on any remaining borg backups
-                            self.send_quit_command()?;
-                            return Ok(());
+                    match self.editing_state {
+                        EditingState::Normal => self.handle_keyboard_input(key)?,
+                        EditingState::Editing => {
+                            // TODO: How do we associate a function with the enter press?
+                            match key.code {
+                                KeyCode::Backspace => {
+                                    self.input_buffer.pop();
+                                }
+                                KeyCode::Char(c) => self.input_buffer.push(c),
+                                KeyCode::Enter => info!("input_buffer: {}", self.input_buffer),
+                                KeyCode::Esc => {
+                                    self.editing_state = EditingState::Normal;
+                                }
+                                _ => {}
+                            };
                         }
-                        KeyCode::Char('u') => {
-                            toggle_to_previous_state_or_run!(self, UIState::BackingUp, {
-                                self.start_backing_up();
-                                self.send_create_command()?;
-                            });
-                        }
-                        KeyCode::Char('l') => {
-                            toggle_to_previous_state_or_run!(self, UIState::ListAllArchives, {
-                                self.start_list_archive_state();
-                                self.send_list_archives_command()?;
-                            });
-                        }
-                        // TODO: Have a "previous state" variable and toggle back to that.
-                        KeyCode::Char('p') => {
-                            toggle_to_previous_state_or_run!(self, UIState::ProfileView, {
-                                self.switch_ui_state(UIState::ProfileView);
-                            });
-                        }
-                        _ => {}
                     }
                 }
             }
@@ -434,6 +472,30 @@ impl BorgTui {
         } else {
             Some((min, max))
         }
+    }
+
+    fn draw_popup<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        // Clear out the background
+        frame.render_widget(tui::widgets::Clear, area);
+        let input_box_size = 3;
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    Constraint::Length(area.height - input_box_size),
+                    Constraint::Max(input_box_size),
+                ]
+                .as_ref(),
+            )
+            .split(area);
+        let (top_area, input_panel_area) = (chunks[0], chunks[1]);
+        let content =
+            List::new(vec![]).block(Block::default().borders(Borders::ALL).title("Content"));
+        frame.render_widget(content, top_area);
+
+        let input_panel = Paragraph::new(self.input_buffer.clone())
+            .block(Block::default().borders(Borders::ALL).title("Input"));
+        frame.render_widget(input_panel, input_panel_area);
     }
 
     fn draw_backup_chart<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
@@ -651,6 +713,7 @@ impl BorgTui {
             Spans::from("• Press 'u' to backup"),
             Spans::from("• Press 'p' to toggle profile"),
             Spans::from("• Press 'l' to list archives"),
+            Spans::from("• Press 'a' to add a backup path"),
         ];
         let info_panel = Paragraph::new(text)
             .wrap(Wrap { trim: true })
@@ -764,5 +827,30 @@ impl BorgTui {
         }
         self.draw_info_panel(frame, left);
         self.draw_main_right_panel(frame, right);
+        if self.popup_required {
+            let top_left = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(
+                    [
+                        Constraint::Percentage(10),
+                        Constraint::Percentage(80),
+                        Constraint::Percentage(10),
+                    ]
+                    .as_ref(),
+                )
+                .split(frame.size())[1];
+            let corner = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(
+                    [
+                        Constraint::Percentage(10),
+                        Constraint::Percentage(80),
+                        Constraint::Percentage(10),
+                    ]
+                    .as_ref(),
+                )
+                .split(top_left)[1];
+            self.draw_popup(frame, corner);
+        }
     }
 }
