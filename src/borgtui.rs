@@ -551,7 +551,14 @@ impl BorgTui {
             List::new(list_items).block(Block::default().borders(Borders::ALL).title("Content"));
         frame.render_widget(content, top_area);
 
+        let input_panel_style = if std::fs::metadata(&self.input_buffer).is_ok() {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default()
+        };
+
         let input_panel = Paragraph::new(self.input_buffer.clone())
+            .style(input_panel_style)
             .block(Block::default().borders(Borders::ALL).title("Input"));
         frame.render_widget(input_panel, input_panel_area);
     }
