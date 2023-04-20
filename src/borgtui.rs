@@ -283,6 +283,19 @@ impl BorgTui {
                                     self.input_buffer.pop();
                                     self.input_buffer_changed = true;
                                 }
+                                KeyCode::Tab => {
+                                    if let Some(res) = self.directory_suggestions.first() {
+                                        let res = res.to_string_lossy().to_string();
+                                        // TODO: This will cycle the ending forward slash on and off
+                                        if self.input_buffer == res {
+                                            // TODO: Handle windows backslash maybe never?
+                                            self.input_buffer.push('/');
+                                        } else {
+                                            self.input_buffer = res;
+                                        }
+                                        self.input_buffer_changed = true;
+                                    }
+                                }
                                 KeyCode::Char(c) => {
                                     self.input_buffer.push(c);
                                     self.input_buffer_changed = true;
