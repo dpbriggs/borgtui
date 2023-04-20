@@ -1,7 +1,11 @@
 #![allow(unused)]
 pub(crate) type BorgResult<T> = anyhow::Result<T>;
 
-use std::{collections::VecDeque, fmt::Display};
+use std::{
+    collections::{BTreeSet, VecDeque},
+    fmt::Display,
+    path::PathBuf,
+};
 
 /// Send a CommandResponse::Info in a channel.
 macro_rules! send_info {
@@ -20,6 +24,21 @@ macro_rules! send_info {
     };
 }
 pub(crate) use send_info;
+
+/// Send a CommandResponse::Info in a channel.
+macro_rules! log_on_error {
+    ($result_expr:expr, $log_message:expr) => {
+        match $result_expr {
+            Ok(res) => res,
+            Err(e) => {
+                error!($log_message, e);
+                return;
+            }
+        }
+    };
+}
+pub(crate) use log_on_error;
+use tracing::debug;
 
 #[derive(Debug, Default)]
 pub(crate) struct RingBuffer<T> {
@@ -143,5 +162,65 @@ impl Display for PrettyBytes {
         let (scaled, precision, unit) = self.scaled_with_unit();
         write!(f, "{0:.1$}", scaled, precision)?;
         write!(f, " {}", unit)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DirectoryFinder {
+    known_directories: BTreeSet<PathBuf>,
+    num_updates: usize,
+}
+
+impl DirectoryFinder {
+    const UPDATE_GUESS_MAX_DEPTH: usize = 2;
+    pub(crate) fn new() -> Self {
+        Self {
+            known_directories: BTreeSet::new(),
+            num_updates: 0,
+        }
+    }
+
+    pub(crate) fn seed_from_directory(&mut self, directory: PathBuf, max_depth: usize) {
+        let all_directories = walkdir::WalkDir::new(directory)
+            .max_depth(max_depth)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|entry| entry.file_type().is_dir())
+            .map(|entry| entry.path().to_owned());
+        self.known_directories.extend(all_directories);
+        debug!("known_directories: {:?}", self.known_directories);
+        self.num_updates += 1;
+    }
+
+    pub(crate) fn update_guess(&mut self, file_path_fragment: &str) -> BorgResult<()> {
+        let path = PathBuf::try_from(file_path_fragment)?;
+        self.seed_from_directory(path, Self::UPDATE_GUESS_MAX_DEPTH);
+        self.num_updates += 1;
+        Ok(())
+    }
+
+    pub(crate) fn suggestions(
+        &self,
+        starting_fragment: &str,
+        max_results: usize,
+    ) -> BorgResult<(Vec<PathBuf>, usize)> {
+        let exclude_dot_files = !starting_fragment.contains('.');
+        let path = PathBuf::try_from(starting_fragment)?;
+        Ok((
+            self.known_directories
+                .range(path..)
+                .filter(|res| {
+                    if res.to_string_lossy().contains('.') && exclude_dot_files {
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .take(max_results)
+                .cloned()
+                .collect(),
+            self.num_updates,
+        ))
     }
 }

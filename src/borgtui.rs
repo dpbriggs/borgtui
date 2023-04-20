@@ -40,6 +40,7 @@ pub(crate) enum Command {
     // TODO: Don't use a full repo here!
     ListArchives(Repository),
     DetermineDirectorySize(PathBuf, Arc<AtomicU64>),
+    GetDirectorySuggestionsFor(String),
     Quit,
 }
 
@@ -48,6 +49,7 @@ pub(crate) enum CommandResponse {
     CreateProgress(BorgCreateProgress),
     ListArchiveResult(ListRepository),
     Info(String),
+    SuggestionResults((Vec<PathBuf>, usize)),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -130,10 +132,13 @@ pub(crate) struct BorgTui {
     previous_ui_state: Option<UIState>,
     editing_state: EditingState,
     input_buffer: String,
+    input_buffer_changed: bool,
     popup_required: bool,
     // This is not an enum field to make it easier to tab while a backup is in progress.
     backup_state: BackupState,
     list_archives_state: HashMap<String, ListRepository>,
+    directory_suggestions: Vec<PathBuf>,
+    directory_suggestions_update_num: usize,
     info_logs: RingBuffer<String>,
     done: bool,
 }
@@ -161,6 +166,9 @@ impl BorgTui {
             editing_state: EditingState::Normal,
             backup_state: BackupState::default(),
             list_archives_state: HashMap::new(),
+            directory_suggestions: Vec::new(),
+            directory_suggestions_update_num: 0,
+            input_buffer_changed: false,
             info_logs: RingBuffer::new(10),
             done: false,
         }
@@ -187,6 +195,13 @@ impl BorgTui {
         if let Err(e) = res {
             tracing::error!("Failed to run app: {}", e);
         }
+        Ok(())
+    }
+
+    fn handle_input_buffer_changed(&mut self) -> BorgResult<()> {
+        self.input_buffer_changed = false;
+        let command = Command::GetDirectorySuggestionsFor(self.input_buffer.clone());
+        self.command_channel.blocking_send(command)?;
         Ok(())
     }
 
@@ -266,8 +281,12 @@ impl BorgTui {
                             match key.code {
                                 KeyCode::Backspace => {
                                     self.input_buffer.pop();
+                                    self.input_buffer_changed = true;
                                 }
-                                KeyCode::Char(c) => self.input_buffer.push(c),
+                                KeyCode::Char(c) => {
+                                    self.input_buffer.push(c);
+                                    self.input_buffer_changed = true;
+                                }
                                 KeyCode::Enter => info!("input_buffer: {}", self.input_buffer),
                                 KeyCode::Esc => {
                                     self.editing_state = EditingState::Normal;
@@ -416,10 +435,18 @@ impl BorgTui {
                     list_archive_result,
                 );
             }
+            CommandResponse::SuggestionResults((suggestions, update_num)) => {
+                if self.directory_suggestions_update_num < update_num {
+                    self.directory_suggestions = suggestions;
+                }
+            }
         }
     }
 
     fn on_tick(&mut self) -> BorgResult<()> {
+        if self.input_buffer_changed {
+            self.handle_input_buffer_changed()?;
+        }
         for _ in 0..Self::POLLING_AMOUNT {
             let res = self
                 .recv_channel
@@ -501,8 +528,14 @@ impl BorgTui {
             )
             .split(area);
         let (top_area, input_panel_area) = (chunks[0], chunks[1]);
+        // TODO: Make this generic
+        let list_items: Vec<_> = self
+            .directory_suggestions
+            .iter()
+            .map(|item| ListItem::new(item.to_string_lossy().to_owned()))
+            .collect();
         let content =
-            List::new(vec![]).block(Block::default().borders(Borders::ALL).title("Content"));
+            List::new(list_items).block(Block::default().borders(Borders::ALL).title("Content"));
         frame.render_widget(content, top_area);
 
         let input_panel = Paragraph::new(self.input_buffer.clone())

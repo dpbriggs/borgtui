@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use anyhow::{bail, Context};
@@ -8,6 +8,7 @@ use borgbackup::asynchronous::CreateProgress;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 use tracing_subscriber::FmtSubscriber;
+use types::{log_on_error, DirectoryFinder};
 use walkdir::WalkDir;
 
 use crate::borgtui::{BorgTui, Command, CommandResponse};
@@ -57,6 +58,7 @@ fn determine_directory_size(path: PathBuf, byte_count: Arc<AtomicU64>) {
 async fn handle_tui_command(
     command: Command,
     command_response_send: mpsc::Sender<CommandResponse>,
+    directory_finder: Arc<Mutex<DirectoryFinder>>,
 ) -> BorgResult<bool> {
     match command {
         Command::CreateBackup(profile) => {
@@ -98,7 +100,27 @@ async fn handle_tui_command(
             });
             Ok(false)
         }
-
+        Command::GetDirectorySuggestionsFor(directory) => {
+            // TODO: This blocks command handling, right?
+            tokio::task::spawn_blocking(move || {
+                let mut dir_finder =
+                    log_on_error!(directory_finder.lock(), "failed to lock dir_finder: {}");
+                log_on_error!(
+                    dir_finder.update_guess(&directory),
+                    "failed to update guess: {}"
+                );
+                let suggestions = log_on_error!(
+                    dir_finder.suggestions(&directory, 20),
+                    "failed to obtain suggestions: {}"
+                );
+                log_on_error!(
+                    command_response_send
+                        .blocking_send(CommandResponse::SuggestionResults(suggestions)),
+                    "Failed to send suggestion results: {}"
+                );
+            });
+            Ok(false)
+        }
         Command::Quit => Ok(true),
     }
 }
@@ -113,8 +135,9 @@ async fn setup_tui() -> BorgResult<JoinHandle<()>> {
             error!("Failed to run tui: {}", e);
         }
     });
+    let dir_finder = Arc::new(Mutex::new(DirectoryFinder::new()));
     while let Some(command) = command_recv.recv().await {
-        match handle_tui_command(command, response_send.clone()).await {
+        match handle_tui_command(command, response_send.clone(), dir_finder.clone()).await {
             Ok(true) => return Ok(res),
             Err(e) => error!("Failed to handle tui command: {}", e),
             _ => {}
@@ -150,6 +173,9 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
             CommandResponse::ListArchiveResult(list_archive_result) => {
                 // TODO: Print this out in a more informative way
                 info!("{:?}", list_archive_result)
+            }
+            CommandResponse::SuggestionResults(_) => {
+                error!("Received SuggestionResults in non-interactive!")
             }
         }
     }
