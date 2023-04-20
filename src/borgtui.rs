@@ -11,7 +11,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
 use tui::symbols;
@@ -36,6 +36,7 @@ const BYTES_TO_MEGABYTES_F64: f64 = 1024.0 * 1024.0;
 #[derive(Debug)]
 pub(crate) enum Command {
     CreateBackup(Profile),
+    SaveProfile(Profile),
     // TODO: Don't use a full repo here!
     ListArchives(Repository),
     DetermineDirectorySize(PathBuf, Arc<AtomicU64>),
@@ -219,6 +220,11 @@ impl BorgTui {
                 self.editing_state = EditingState::Editing;
                 self.popup_required = true;
             }
+            KeyCode::Char('s') => {
+                if let Err(e) = self.send_save_command() {
+                    error!("Failed to save profile: {}", e);
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -292,6 +298,12 @@ impl BorgTui {
 
     fn send_create_command(&mut self) -> BorgResult<()> {
         let command = Command::CreateBackup(self.profile.clone());
+        self.command_channel.blocking_send(command)?;
+        Ok(())
+    }
+
+    fn send_save_command(&mut self) -> BorgResult<()> {
+        let command = Command::SaveProfile(self.profile.clone());
         self.command_channel.blocking_send(command)?;
         Ok(())
     }
@@ -714,6 +726,7 @@ impl BorgTui {
             Spans::from("• Press 'p' to toggle profile"),
             Spans::from("• Press 'l' to list archives"),
             Spans::from("• Press 'a' to add a backup path"),
+            Spans::from("• Press 's' to save profile"),
         ];
         let info_panel = Paragraph::new(text)
             .wrap(Wrap { trim: true })
@@ -722,6 +735,7 @@ impl BorgTui {
     }
 
     fn draw_info_logs<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        // TODO: Sometimes this clips text!
         let info_log_text = self
             .info_logs
             .iter()

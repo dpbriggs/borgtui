@@ -68,6 +68,14 @@ async fn handle_tui_command(
             borg::create_backup(&profile, command_response_send).await?;
             Ok(false)
         }
+        Command::SaveProfile(profile) => {
+            send_info!(
+                command_response_send,
+                format!("Saved profile '{}'", profile.name()),
+                "Failed to save profile: {}"
+            );
+            profile.save_profile().await.map(|_| false)
+        }
         Command::DetermineDirectorySize(path, byte_count_atomic) => {
             tokio::task::spawn_blocking(|| determine_directory_size(path, byte_count_atomic));
             Ok(false)
