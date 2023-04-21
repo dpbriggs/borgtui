@@ -1,10 +1,8 @@
-#+TITLE: BorgTUI
-
 * BorgTUI
 
 Under construction! A fearlessly concurrent borg UI hope you have an SSD or you'll have a bad time getting file suggestions =:^)=
 
-https://i.imgur.com/CRSSxUb.png
+[[https://i.imgur.com/CRSSxUb.png][https://i.imgur.com/CRSSxUb.png]]
 
 ** Note
 
