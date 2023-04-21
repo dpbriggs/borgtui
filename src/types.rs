@@ -210,13 +210,7 @@ impl DirectoryFinder {
         Ok((
             self.known_directories
                 .range(path..)
-                .filter(|res| {
-                    if res.to_string_lossy().contains('.') && exclude_dot_files {
-                        false
-                    } else {
-                        true
-                    }
-                })
+                .filter(|res| !(res.to_string_lossy().contains('.') && exclude_dot_files))
                 .take(max_results)
                 .cloned()
                 .collect(),
