@@ -189,7 +189,6 @@ impl DirectoryFinder {
             .filter(|entry| entry.file_type().is_dir())
             .map(|entry| entry.path().to_owned());
         self.known_directories.extend(all_directories);
-        debug!("known_directories: {:?}", self.known_directories);
         self.num_updates += 1;
     }
 
