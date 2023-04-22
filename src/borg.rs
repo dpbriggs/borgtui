@@ -1,7 +1,7 @@
 use crate::{
     borgtui::CommandResponse,
     profiles::{Profile, Repository},
-    types::{send_info, BorgResult},
+    types::{send_error, send_info, BorgResult},
 };
 use anyhow::anyhow;
 use borgbackup::{
@@ -40,17 +40,17 @@ pub(crate) async fn create_backup(
             mpsc::channel::<borg_async::CreateProgress>(100);
 
         let repo_name_clone = create_option.repository.clone();
-        let progress_channel = progress_channel.clone();
+        let progress_channel_task = progress_channel.clone();
         tokio::spawn(async move {
             if repo.lock.try_lock().is_err() {
                 send_info!(
-                    progress_channel,
+                    progress_channel_task,
                     format!("A backup is already in progress for {}, waiting...", repo)
                 );
             }
             let _backup_guard = repo.lock.lock().await;
             send_info!(
-                progress_channel,
+                progress_channel_task,
                 format!("Grabbed repo lock, starting the backup for {}", repo)
             );
             while let Some(progress) = create_progress_recv.recv().await {
@@ -58,7 +58,7 @@ pub(crate) async fn create_backup(
                     repository: repo_name_clone.clone(),
                     create_progress: progress,
                 };
-                if let Err(e) = progress_channel
+                if let Err(e) = progress_channel_task
                     .send(CommandResponse::CreateProgress(create_progress))
                     .await
                 {
@@ -67,6 +67,7 @@ pub(crate) async fn create_backup(
             }
         });
 
+        let progress_channel_clone = progress_channel.clone();
         tokio::spawn(async move {
             match borg_async::create_progress(
                 &create_option,
@@ -77,9 +78,12 @@ pub(crate) async fn create_backup(
             {
                 Ok(c) => info!("Archive created successfully: {:?}", c.archive.stats),
                 // TODO: Send this error message along that channel
-                Err(e) => error!(
-                    "Failed to create archive {} in repo {}: {:?}",
-                    create_option.archive, create_option.repository, e
+                Err(e) => send_error!(
+                    progress_channel_clone,
+                    format!(
+                        "Failed to create archive {} in repo {}: {:?}",
+                        create_option.archive, create_option.repository, e
+                    )
                 ),
             };
         });

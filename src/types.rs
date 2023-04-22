@@ -26,6 +26,24 @@ macro_rules! send_info {
 pub(crate) use send_info;
 
 /// Send a CommandResponse::Info in a channel.
+macro_rules! send_error {
+    ($channel:expr, $info_message:expr) => {
+        if let Err(e) = $channel.send(CommandResponse::Error($info_message)).await {
+            error!(
+                "Error occurred while sending error message \"{}\": {}",
+                $info_message, e
+            );
+        }
+    };
+    ($channel:expr, $info_message:expr, $error_message:expr) => {
+        if let Err(e) = $channel.send(CommandResponse::Error($info_message)).await {
+            error!($error_message, e);
+        }
+    };
+}
+pub(crate) use send_error;
+
+/// Send a CommandResponse::Info in a channel.
 macro_rules! log_on_error {
     ($result_expr:expr, $log_message:expr) => {
         match $result_expr {

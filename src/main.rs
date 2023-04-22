@@ -177,6 +177,7 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
             CommandResponse::SuggestionResults(_) => {
                 error!("Received SuggestionResults in non-interactive!")
             }
+            CommandResponse::Error(error_message) => error!(error_message),
         }
     }
 }

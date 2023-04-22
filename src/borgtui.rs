@@ -49,6 +49,7 @@ pub(crate) enum CommandResponse {
     CreateProgress(BorgCreateProgress),
     ListArchiveResult(ListRepository),
     Info(String),
+    Error(String),
     SuggestionResults((Vec<PathBuf>, usize)),
 }
 
@@ -115,10 +116,206 @@ enum UIState {
     ListAllArchives,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum EditingState {
-    Normal,
-    Editing,
+#[derive(Debug, Clone)]
+struct AddFileToProfilePopup {
+    input_buffer: String,
+    is_editing: bool,
+    is_done: bool,
+    input_buffer_changed: bool,
+}
+
+impl AddFileToProfilePopup {
+    fn new(initial_text: String) -> Self {
+        let input_buffer_changed = !initial_text.is_empty();
+        AddFileToProfilePopup {
+            input_buffer: initial_text,
+            is_editing: true,
+            is_done: false,
+            input_buffer_changed,
+        }
+    }
+
+    fn handle_key(&mut self, key: KeyEvent, directory_suggestions: &[PathBuf]) {
+        match key.code {
+            KeyCode::Backspace => {
+                self.input_buffer.pop();
+                self.input_buffer_changed = true;
+            }
+            KeyCode::Tab => {
+                if let Some(res) = directory_suggestions.first() {
+                    let res = res.to_string_lossy().to_string();
+                    // TODO: This will cycle the ending forward slash on and off
+                    if self.input_buffer == res {
+                        // TODO: Handle windows backslash maybe never?
+                        self.input_buffer.push('/');
+                    } else {
+                        self.input_buffer = res;
+                    }
+                    self.input_buffer_changed = true;
+                }
+            }
+            KeyCode::Char(c) => {
+                if c == 'q' && !self.is_editing {
+                    self.is_done = true;
+                } else {
+                    self.input_buffer.push(c);
+                    self.input_buffer_changed = true;
+                }
+            }
+            KeyCode::Esc => {
+                if self.is_editing {
+                    self.is_done = true;
+                } else {
+                    self.is_editing = false;
+                }
+            }
+            KeyCode::Enter => info!("input_buffer: {}", self.input_buffer),
+            _ => {}
+        }
+    }
+
+    fn on_tick(&mut self, command_channel: &Sender<Command>) -> BorgResult<()> {
+        if self.input_buffer_changed {
+            self.input_buffer_changed = false;
+            let command = Command::GetDirectorySuggestionsFor(self.input_buffer.clone());
+            command_channel.blocking_send(command)?;
+        }
+        Ok(())
+    }
+
+    fn is_done(&self) -> bool {
+        self.is_done
+    }
+
+    fn draw<B: Backend>(
+        &self,
+        frame: &mut Frame<B>,
+        area: Rect,
+        directory_suggestions: &[PathBuf],
+    ) {
+        frame.render_widget(tui::widgets::Clear, area);
+        let input_box_size = 3;
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(
+                [
+                    Constraint::Length(area.height - input_box_size),
+                    Constraint::Max(input_box_size),
+                ]
+                .as_ref(),
+            )
+            .split(area);
+        let (top_area, input_panel_area) = (chunks[0], chunks[1]);
+        // TODO: Make this generic
+        let list_items: Vec<_> = directory_suggestions
+            .iter()
+            .map(|item| ListItem::new(item.to_string_lossy().to_owned()))
+            .collect();
+        let content =
+            List::new(list_items).block(Block::default().borders(Borders::ALL).title("Content"));
+        frame.render_widget(content, top_area);
+
+        let input_panel_style = if std::fs::metadata(&self.input_buffer).is_ok() {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default()
+        };
+
+        let input_panel = Paragraph::new(self.input_buffer.clone())
+            .style(input_panel_style)
+            .block(Block::default().borders(Borders::ALL).title("Input"));
+        frame.render_widget(input_panel, input_panel_area);
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ErrorPopup {
+    error_message: String,
+    is_dismissed: bool,
+}
+
+impl ErrorPopup {
+    fn new(error_message: String) -> Self {
+        ErrorPopup {
+            error_message,
+            is_dismissed: false,
+        }
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('q') => {
+                self.is_dismissed = true;
+            }
+            _ => {}
+        }
+    }
+
+    fn on_tick(&self) -> BorgResult<()> {
+        Ok(())
+    }
+
+    fn is_done(&self) -> bool {
+        self.is_dismissed
+    }
+
+    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        frame.render_widget(tui::widgets::Clear, area);
+        let input_panel = Paragraph::new(self.error_message.clone())
+            .block(Block::default().borders(Borders::ALL).title("Input"));
+        frame.render_widget(input_panel, area);
+    }
+}
+
+// TODO: Use enum dispatch or related!
+#[derive(Debug, Clone)]
+enum Popup {
+    AddFileToProfile(AddFileToProfilePopup),
+    Error(ErrorPopup),
+}
+
+impl Popup {
+    fn handle_key(&mut self, key: KeyEvent, directory_suggestions: &[PathBuf]) {
+        match self {
+            Popup::AddFileToProfile(p) => p.handle_key(key, directory_suggestions),
+            Popup::Error(e) => e.handle_key(key),
+        }
+    }
+    fn on_tick(&mut self, command_channel: &Sender<Command>) -> BorgResult<()> {
+        match self {
+            Popup::AddFileToProfile(p) => p.on_tick(command_channel),
+            Popup::Error(p) => p.on_tick(),
+        }
+    }
+    fn draw<B: Backend>(
+        &self,
+        frame: &mut Frame<B>,
+        area: Rect,
+        directory_suggestions: &[PathBuf],
+    ) {
+        match self {
+            Popup::AddFileToProfile(p) => p.draw(frame, area, directory_suggestions),
+            Popup::Error(p) => p.draw(frame, area),
+        }
+    }
+    fn is_done(&self) -> bool {
+        match self {
+            Popup::AddFileToProfile(p) => p.is_done(),
+            Popup::Error(p) => p.is_done(),
+        }
+    }
+}
+
+impl From<AddFileToProfilePopup> for Popup {
+    fn from(value: AddFileToProfilePopup) -> Self {
+        Popup::AddFileToProfile(value)
+    }
+}
+
+impl From<ErrorPopup> for Popup {
+    fn from(value: ErrorPopup) -> Self {
+        Popup::Error(value)
+    }
 }
 
 // TODO: Consider encapsulating these different states into their own struct
@@ -130,10 +327,7 @@ pub(crate) struct BorgTui {
     recv_channel: Receiver<CommandResponse>,
     ui_state: UIState,
     previous_ui_state: Option<UIState>,
-    editing_state: EditingState,
-    input_buffer: String,
-    input_buffer_changed: bool,
-    popup_required: bool,
+    popup_stack: Vec<Popup>,
     // This is not an enum field to make it easier to tab while a backup is in progress.
     backup_state: BackupState,
     list_archives_state: HashMap<String, ListRepository>,
@@ -161,14 +355,11 @@ impl BorgTui {
             recv_channel,
             ui_state: UIState::ProfileView,
             previous_ui_state: None,
-            input_buffer: String::new(),
-            popup_required: false,
-            editing_state: EditingState::Normal,
+            popup_stack: Vec::new(),
             backup_state: BackupState::default(),
             list_archives_state: HashMap::new(),
             directory_suggestions: Vec::new(),
             directory_suggestions_update_num: 0,
-            input_buffer_changed: false,
             info_logs: RingBuffer::new(10),
             done: false,
         }
@@ -195,13 +386,6 @@ impl BorgTui {
         if let Err(e) = res {
             tracing::error!("Failed to run app: {}", e);
         }
-        Ok(())
-    }
-
-    fn handle_input_buffer_changed(&mut self) -> BorgResult<()> {
-        self.input_buffer_changed = false;
-        let command = Command::GetDirectorySuggestionsFor(self.input_buffer.clone());
-        self.command_channel.blocking_send(command)?;
         Ok(())
     }
 
@@ -232,8 +416,12 @@ impl BorgTui {
                 });
             }
             KeyCode::Char('a') => {
-                self.editing_state = EditingState::Editing;
-                self.popup_required = true;
+                let initial_dir = dirs::home_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(String::new);
+                // self.send
+                self.popup_stack
+                    .push(AddFileToProfilePopup::new(initial_dir).into());
             }
             KeyCode::Char('s') => {
                 if let Err(e) = self.send_save_command() {
@@ -272,49 +460,62 @@ impl BorgTui {
                 .tick_rate
                 .checked_sub(last_tick.elapsed())
                 .unwrap_or_else(|| Duration::from_secs(0));
+            // Remove finished popups
+            self.popup_stack.retain(|popup| !popup.is_done());
             if crossterm::event::poll(timeout)? {
                 if let Event::Key(key) = event::read()? {
-                    match self.editing_state {
-                        EditingState::Normal => self.handle_keyboard_input(key)?,
-                        EditingState::Editing => {
-                            // TODO: How do we associate a function with the enter press?
-                            match key.code {
-                                KeyCode::Backspace => {
-                                    self.input_buffer.pop();
-                                    self.input_buffer_changed = true;
-                                }
-                                KeyCode::Tab => {
-                                    if let Some(res) = self.directory_suggestions.first() {
-                                        let res = res.to_string_lossy().to_string();
-                                        // TODO: This will cycle the ending forward slash on and off
-                                        if self.input_buffer == res {
-                                            // TODO: Handle windows backslash maybe never?
-                                            self.input_buffer.push('/');
-                                        } else {
-                                            self.input_buffer = res;
-                                        }
-                                        self.input_buffer_changed = true;
-                                    }
-                                }
-                                KeyCode::Char(c) => {
-                                    self.input_buffer.push(c);
-                                    self.input_buffer_changed = true;
-                                }
-                                KeyCode::Enter => info!("input_buffer: {}", self.input_buffer),
-                                KeyCode::Esc => {
-                                    self.editing_state = EditingState::Normal;
-                                }
-                                _ => {}
-                            };
-                        }
+                    match self.popup_stack.last_mut() {
+                        Some(popup) => popup.handle_key(key, &self.directory_suggestions),
+                        None => self.handle_keyboard_input(key)?,
                     }
+                    // match self.editing_state {
+                    //     EditingState::Normal => self.handle_keyboard_input(key)?,
+                    //     EditingState::Editing => {
+                    //         // TODO: How do we associate a function with the enter press?
+                    //         match key.code {
+                    //             KeyCode::Backspace => {
+                    //                 self.input_buffer.pop();
+                    //                 self.input_buffer_changed = true;
+                    //             }
+                    //             KeyCode::Tab => {
+                    //                 if let Some(res) = self.directory_suggestions.first() {
+                    //                     let res = res.to_string_lossy().to_string();
+                    //                     // TODO: This will cycle the ending forward slash on and off
+                    //                     if self.input_buffer == res {
+                    //                         // TODO: Handle windows backslash maybe never?
+                    //                         self.input_buffer.push('/');
+                    //                     } else {
+                    //                         self.input_buffer = res;
+                    //                     }
+                    //                     self.input_buffer_changed = true;
+                    //                 }
+                    //             }
+                    //             KeyCode::Char(c) => {
+                    //                 self.input_buffer.push(c);
+                    //                 self.input_buffer_changed = true;
+                    //             }
+                    //             KeyCode::Enter => info!("input_buffer: {}", self.input_buffer),
+                    //             KeyCode::Esc => {
+                    //                 self.editing_state = EditingState::Normal;
+                    //             }
+                    //             _ => {}
+                    //         };
+                    //     }
+                    // }
                 }
             }
             if last_tick.elapsed() >= self.tick_rate {
-                self.on_tick()?;
+                if let Err(e) = self.on_tick() {
+                    error!("{}", e);
+                    self.add_error(format!("{}", e));
+                }
                 last_tick = Instant::now();
             }
         }
+    }
+
+    fn add_error(&mut self, error: String) {
+        self.popup_stack.push(ErrorPopup::new(error).into())
     }
 
     fn send_backup_dir_size_command(&mut self, dir: PathBuf) -> BorgResult<()> {
@@ -453,13 +654,11 @@ impl BorgTui {
                     self.directory_suggestions = suggestions;
                 }
             }
+            CommandResponse::Error(error_message) => self.add_error(error_message),
         }
     }
 
     fn on_tick(&mut self) -> BorgResult<()> {
-        if self.input_buffer_changed {
-            self.handle_input_buffer_changed()?;
-        }
         for _ in 0..Self::POLLING_AMOUNT {
             let res = self
                 .recv_channel
@@ -474,6 +673,10 @@ impl BorgTui {
                 self.done = true;
             }
         }
+        // TODO: Above or below?
+        self.popup_stack
+            .iter_mut()
+            .try_for_each(|popup| popup.on_tick(&self.command_channel))?;
         Ok(())
     }
 
@@ -524,43 +727,6 @@ impl BorgTui {
         } else {
             Some((min, max))
         }
-    }
-
-    fn draw_popup<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
-        // Clear out the background
-        frame.render_widget(tui::widgets::Clear, area);
-        let input_box_size = 3;
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(
-                [
-                    Constraint::Length(area.height - input_box_size),
-                    Constraint::Max(input_box_size),
-                ]
-                .as_ref(),
-            )
-            .split(area);
-        let (top_area, input_panel_area) = (chunks[0], chunks[1]);
-        // TODO: Make this generic
-        let list_items: Vec<_> = self
-            .directory_suggestions
-            .iter()
-            .map(|item| ListItem::new(item.to_string_lossy().to_owned()))
-            .collect();
-        let content =
-            List::new(list_items).block(Block::default().borders(Borders::ALL).title("Content"));
-        frame.render_widget(content, top_area);
-
-        let input_panel_style = if std::fs::metadata(&self.input_buffer).is_ok() {
-            Style::default().fg(Color::Green)
-        } else {
-            Style::default()
-        };
-
-        let input_panel = Paragraph::new(self.input_buffer.clone())
-            .style(input_panel_style)
-            .block(Block::default().borders(Borders::ALL).title("Input"));
-        frame.render_widget(input_panel, input_panel_area);
     }
 
     fn draw_backup_chart<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
@@ -894,7 +1060,7 @@ impl BorgTui {
         }
         self.draw_info_panel(frame, left);
         self.draw_main_right_panel(frame, right);
-        if self.popup_required {
+        if let Some(popup) = self.popup_stack.last() {
             let top_left = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints(
@@ -917,7 +1083,7 @@ impl BorgTui {
                     .as_ref(),
                 )
                 .split(top_left)[1];
-            self.draw_popup(frame, corner);
+            popup.draw(frame, corner, &self.directory_suggestions);
         }
     }
 }
