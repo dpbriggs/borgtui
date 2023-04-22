@@ -1,4 +1,4 @@
-use crate::profiles::Repository;
+use crate::profiles::{ProfileOperation, Repository};
 use crate::types::{BorgResult, PrettyBytes, RingBuffer};
 use crate::{borg::BorgCreateProgress, profiles::Profile};
 use borgbackup::asynchronous::CreateProgress;
@@ -36,7 +36,7 @@ const BYTES_TO_MEGABYTES_F64: f64 = 1024.0 * 1024.0;
 pub(crate) enum Command {
     CreateBackup(Profile),
     SaveProfile(Profile),
-    AddBackupPathAndSave(Profile, String, Arc<AtomicBool>),
+    UpdateProfileAndSave(Profile, ProfileOperation, Arc<AtomicBool>),
     ListArchives(Repository),
     DetermineDirectorySize(PathBuf, Arc<AtomicU64>),
     GetDirectorySuggestionsFor(String),
@@ -503,9 +503,9 @@ impl BorgTui {
         signal_success: Arc<AtomicBool>,
     ) -> BorgResult<()> {
         self.command_channel
-            .blocking_send(Command::AddBackupPathAndSave(
+            .blocking_send(Command::UpdateProfileAndSave(
                 self.profile.clone(),
-                path,
+                ProfileOperation::AddBackupPath(PathBuf::try_from(path)?),
                 signal_success,
             ))?;
         Ok(())

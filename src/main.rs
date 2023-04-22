@@ -70,6 +70,20 @@ async fn handle_tui_command(
             borg::create_backup(&profile, command_response_send).await?;
             Ok(false)
         }
+        Command::UpdateProfileAndSave(mut profile, op, signal_success) => {
+            profile.apply_operation(op).await?;
+            profile.save_profile().await?;
+            send_info!(
+                command_response_send,
+                format!("Saved profile '{}'", profile.name()),
+                "Failed to send 'Saved profile' message: {}"
+            );
+            command_response_send
+                .send(CommandResponse::ProfileUpdated(profile))
+                .await?;
+            signal_success.store(true, Ordering::SeqCst);
+            Ok(false)
+        }
         Command::SaveProfile(profile) => {
             send_info!(
                 command_response_send,
@@ -126,19 +140,6 @@ async fn handle_tui_command(
                     "Failed to send suggestion results: {}"
                 );
             });
-            Ok(false)
-        }
-        Command::AddBackupPathAndSave(mut profile, path, successfully_saved) => {
-            let path = PathBuf::try_from(path)?;
-            profile.add_backup_path(path).await?;
-            profile.save_profile().await?;
-            successfully_saved.store(true, Ordering::SeqCst);
-            if let Err(e) = command_response_send
-                .send(CommandResponse::ProfileUpdated(profile))
-                .await
-            {
-                error!("Failed to send updated profile: {}", e)
-            }
             Ok(false)
         }
         Command::Quit => Ok(true),

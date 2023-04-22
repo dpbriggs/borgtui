@@ -18,6 +18,7 @@ pub(crate) enum Encryption {
     Raw(String),
     Keyring,
 }
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Repository {
     pub(crate) path: String,
@@ -64,6 +65,11 @@ impl Repository {
     pub(crate) fn get_path(&self) -> String {
         self.path.clone()
     }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ProfileOperation {
+    AddBackupPath(PathBuf),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -150,6 +156,12 @@ impl Profile {
     pub(crate) fn serialize(&self) -> BorgResult<String> {
         serde_json::to_string_pretty(self)
             .with_context(|| format!("Failed to serialize profile {}", self.name()))
+    }
+
+    pub(crate) async fn apply_operation(&mut self, op: ProfileOperation) -> BorgResult<()> {
+        match op {
+            ProfileOperation::AddBackupPath(path) => self.add_backup_path(path).await,
+        }
     }
 
     pub(crate) fn borg_create_options(
