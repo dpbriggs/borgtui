@@ -1,3 +1,5 @@
+use std::num::NonZeroU16;
+
 use crate::{
     borgtui::CommandResponse,
     profiles::{Profile, Repository},
@@ -6,7 +8,7 @@ use crate::{
 use anyhow::anyhow;
 use borgbackup::{
     asynchronous as borg_async,
-    common::{CommonOptions, CompactOptions, ListOptions},
+    common::{CommonOptions, CompactOptions, ListOptions, PruneOptions},
     output::list::ListRepository,
 };
 use tokio::sync::mpsc;
@@ -114,4 +116,15 @@ pub(crate) async fn compact(repo: &Repository) -> BorgResult<()> {
     borg_async::compact(&compact_options, &CommonOptions::default())
         .await
         .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.get_path(), e))
+}
+
+pub(crate) async fn prune(repo: &Repository) -> BorgResult<()> {
+    let mut compact_options = PruneOptions::new(repo.get_path());
+    compact_options.passphrase = repo.get_passphrase()?;
+    compact_options.keep_daily = NonZeroU16::new(7);
+    compact_options.keep_weekly = NonZeroU16::new(4);
+    compact_options.keep_monthly = NonZeroU16::new(12);
+    borg_async::prune(&compact_options, &CommonOptions::default())
+        .await
+        .map_err(|e| anyhow!("Failed to prune repo {}: {:?}", repo.get_path(), e))
 }

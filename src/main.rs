@@ -121,8 +121,23 @@ async fn handle_tui_command(
             Ok(false)
         }
         Command::Compact(repo) => {
-            borg::compact(&repo).await?;
-            send_info!(command_response_send, format!("Compacted {}", repo));
+            tokio::spawn(async move {
+                if let Err(e) = borg::compact(&repo).await {
+                    send_error!(command_response_send, format!("Failed to compact: {}", e));
+                } else {
+                    send_info!(command_response_send, format!("Compacted {}", repo));
+                }
+            });
+            Ok(false)
+        }
+        Command::Prune(repo) => {
+            tokio::spawn(async move {
+                if let Err(e) = borg::prune(&repo).await {
+                    send_error!(command_response_send, format!("Failed to prune: {}", e))
+                } else {
+                    send_info!(command_response_send, format!("Pruned {}", repo));
+                }
+            });
             Ok(false)
         }
         Command::GetDirectorySuggestionsFor(directory) => {

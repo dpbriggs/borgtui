@@ -39,6 +39,7 @@ pub(crate) enum Command {
     UpdateProfileAndSave(Profile, ProfileOperation, Arc<AtomicBool>),
     ListArchives(Repository),
     Compact(Repository),
+    Prune(Repository),
     DetermineDirectorySize(PathBuf, Arc<AtomicU64>),
     GetDirectorySuggestionsFor(String),
     Quit,
@@ -271,6 +272,7 @@ impl ErrorPopup {
     fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
         frame.render_widget(tui::widgets::Clear, area);
         let input_panel = Paragraph::new(self.error_message.clone())
+            .wrap(Wrap { trim: true })
             .block(Block::default().borders(Borders::ALL).title("Error"));
         frame.render_widget(input_panel, area);
     }
@@ -446,6 +448,14 @@ impl BorgTui {
                     self.add_error(err_msg);
                 }
             }
+            KeyCode::Char('\\') => {
+                self.add_info("Pruning each repo...");
+                if let Err(e) = self.send_prune_command() {
+                    let err_msg = format!("Failed to start pruning: {}", e);
+                    error!(err_msg);
+                    self.add_error(err_msg);
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -544,6 +554,14 @@ impl BorgTui {
     fn send_compact_command(&mut self) -> BorgResult<()> {
         for repo in self.profile.repos() {
             let command = Command::Compact(repo.clone());
+            self.command_channel.blocking_send(command)?;
+        }
+        Ok(())
+    }
+
+    fn send_prune_command(&mut self) -> BorgResult<()> {
+        for repo in self.profile.repos() {
+            let command = Command::Prune(repo.clone());
             self.command_channel.blocking_send(command)?;
         }
         Ok(())
@@ -978,6 +996,7 @@ impl BorgTui {
             frame.render_widget(archive_table, area)
         }
     }
+
     // fn draw_archive_list<B: Backend>(&self, repo: &(), frame: &mut Frame<B>, area: Rect) {}
 
     fn draw_info_panel<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
@@ -990,6 +1009,7 @@ impl BorgTui {
             Spans::from("• Press 'a' to add a backup path"),
             Spans::from("• Press 's' to save profile"),
             Spans::from("• Press 'c' to compact"),
+            Spans::from("• Press '\\' to prune"),
         ];
         let info_panel = Paragraph::new(text)
             .wrap(Wrap { trim: true })

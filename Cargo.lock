@@ -262,8 +262,8 @@ dependencies = [
 
 [[package]]
 name = "borgbackup"
-version = "0.6.1"
-source = "git+https://github.com/myOmikron/borgbackup.git?rev=7508b51#7508b51b92089856aeba8434a39435fe79565e9f"
+version = "0.6.2"
+source = "git+https://github.com/dpbriggs/borgbackup-fork.git?rev=6b25a53#6b25a53ce061a651dfadd8e8227d0930227d4368"
 dependencies = [
  "chrono",
  "log",
