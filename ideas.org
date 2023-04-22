@@ -19,6 +19,7 @@ CLOSED: [2023-04-21 Fri 22:21]
 ** DONE Have a severity for info_logs
 CLOSED: [2023-04-22 Sat 10:06]
 Not quite the spirit but we have error logs now.
+** DONE Add compaction
+CLOSED: [2023-04-22 Sat 10:18]
 ** TODO Watch the profile config file and update it when it's edited externally
-** TODO Add compaction
 ** TODO Make list archives a table

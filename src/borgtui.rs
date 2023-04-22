@@ -439,8 +439,7 @@ impl BorgTui {
                 }
             }
             KeyCode::Char('c') => {
-                self.info_logs
-                    .push_back("Compacting each repo...".to_string());
+                self.add_info("Compacting each repo...");
                 if let Err(e) = self.send_compact_command() {
                     let err_msg = format!("Failed to start compacting: {}", e);
                     error!(err_msg);
@@ -501,6 +500,10 @@ impl BorgTui {
                 last_tick = Instant::now();
             }
         }
+    }
+
+    fn add_info<I: Into<String>>(&mut self, info: I) {
+        self.info_logs.push_back(info.into())
     }
 
     fn add_error(&mut self, error: String) {
@@ -643,8 +646,7 @@ impl BorgTui {
                     CreateProgress::Finished => {
                         // TODO: Replace this hack with a proper notification
                         self.backup_state.mark_finished(repo.clone());
-                        self.info_logs
-                            .push_back(format!("Finished backing up {}", repo));
+                        self.add_info(format!("Finished backing up {}", repo));
                         debug!("test: {:?}", self.info_logs.is_empty());
                         tracing::info!("Finished backing up {}", repo);
                     }
@@ -652,7 +654,7 @@ impl BorgTui {
             }
             CommandResponse::Info(info_string) => {
                 info!(info_string);
-                self.info_logs.push_back(info_string)
+                self.add_info(info_string)
             }
             CommandResponse::ListArchiveResult(list_archive_result) => {
                 self.list_archives_state.insert(
@@ -667,7 +669,7 @@ impl BorgTui {
             }
             CommandResponse::Error(error_message) => self.add_error(error_message),
             CommandResponse::ProfileUpdated(profile) => {
-                self.info_logs.push_back("Profile updated.".to_string());
+                self.add_info("Profile updated.");
                 // TODO: Refactor this to be nicer.
                 self.profile = profile;
                 let paths_to_add: Vec<_> = self
