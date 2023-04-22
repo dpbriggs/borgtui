@@ -1,5 +1,4 @@
 use crate::profiles::Repository;
-// use crate::cli::Action;
 use crate::types::{BorgResult, PrettyBytes, RingBuffer};
 use crate::{borg::BorgCreateProgress, profiles::Profile};
 use borgbackup::asynchronous::CreateProgress;
@@ -20,7 +19,7 @@ use tui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table,
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tui::{
@@ -37,7 +36,7 @@ const BYTES_TO_MEGABYTES_F64: f64 = 1024.0 * 1024.0;
 pub(crate) enum Command {
     CreateBackup(Profile),
     SaveProfile(Profile),
-    // TODO: Don't use a full repo here!
+    AddBackupPathAndSave(Profile, String, Arc<AtomicBool>),
     ListArchives(Repository),
     DetermineDirectorySize(PathBuf, Arc<AtomicU64>),
     GetDirectorySuggestionsFor(String),
@@ -48,6 +47,7 @@ pub(crate) enum Command {
 pub(crate) enum CommandResponse {
     CreateProgress(BorgCreateProgress),
     ListArchiveResult(ListRepository),
+    ProfileUpdated(Profile),
     Info(String),
     Error(String),
     SuggestionResults((Vec<PathBuf>, usize)),
@@ -121,6 +121,7 @@ struct AddFileToProfilePopup {
     input_buffer: String,
     is_editing: bool,
     is_done: bool,
+    path_successfully_added: Arc<AtomicBool>,
     input_buffer_changed: bool,
 }
 
@@ -131,18 +132,19 @@ impl AddFileToProfilePopup {
             input_buffer: initial_text,
             is_editing: true,
             is_done: false,
+            path_successfully_added: Arc::new(AtomicBool::new(false)),
             input_buffer_changed,
         }
     }
 
-    fn handle_key(&mut self, key: KeyEvent, directory_suggestions: &[PathBuf]) {
+    fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
         match key.code {
             KeyCode::Backspace => {
                 self.input_buffer.pop();
                 self.input_buffer_changed = true;
             }
             KeyCode::Tab => {
-                if let Some(res) = directory_suggestions.first() {
+                if let Some(res) = borgtui.directory_suggestions.first() {
                     let res = res.to_string_lossy().to_string();
                     // TODO: This will cycle the ending forward slash on and off
                     if self.input_buffer == res {
@@ -169,7 +171,15 @@ impl AddFileToProfilePopup {
                     self.is_editing = false;
                 }
             }
-            KeyCode::Enter => info!("input_buffer: {}", self.input_buffer),
+            KeyCode::Enter => {
+                // TODO: Basic validation
+                if let Err(e) = borgtui.add_backup_path_to_profile(
+                    self.input_buffer.clone(),
+                    self.path_successfully_added.clone(),
+                ) {
+                    borgtui.add_error(format!("{}", e));
+                }
+            }
             _ => {}
         }
     }
@@ -184,7 +194,8 @@ impl AddFileToProfilePopup {
     }
 
     fn is_done(&self) -> bool {
-        self.is_done
+        // TODO: A fancy animation would be nice
+        self.is_done || self.path_successfully_added.load(Ordering::SeqCst)
     }
 
     fn draw<B: Backend>(
@@ -209,7 +220,7 @@ impl AddFileToProfilePopup {
         // TODO: Make this generic
         let list_items: Vec<_> = directory_suggestions
             .iter()
-            .map(|item| ListItem::new(item.to_string_lossy().to_owned()))
+            .map(|item| ListItem::new(item.to_string_lossy()))
             .collect();
         let content =
             List::new(list_items).block(Block::default().borders(Borders::ALL).title("Content"));
@@ -243,11 +254,8 @@ impl ErrorPopup {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Char('q') => {
-                self.is_dismissed = true;
-            }
-            _ => {}
+        if let KeyCode::Char('q') = key.code {
+            self.is_dismissed = true;
         }
     }
 
@@ -262,7 +270,7 @@ impl ErrorPopup {
     fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
         frame.render_widget(tui::widgets::Clear, area);
         let input_panel = Paragraph::new(self.error_message.clone())
-            .block(Block::default().borders(Borders::ALL).title("Input"));
+            .block(Block::default().borders(Borders::ALL).title("Error"));
         frame.render_widget(input_panel, area);
     }
 }
@@ -275,9 +283,9 @@ enum Popup {
 }
 
 impl Popup {
-    fn handle_key(&mut self, key: KeyEvent, directory_suggestions: &[PathBuf]) {
+    fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
         match self {
-            Popup::AddFileToProfile(p) => p.handle_key(key, directory_suggestions),
+            Popup::AddFileToProfile(p) => p.handle_key(key, borgtui),
             Popup::Error(e) => e.handle_key(key),
         }
     }
@@ -419,13 +427,14 @@ impl BorgTui {
                 let initial_dir = dirs::home_dir()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_else(String::new);
-                // self.send
                 self.popup_stack
                     .push(AddFileToProfilePopup::new(initial_dir).into());
             }
             KeyCode::Char('s') => {
                 if let Err(e) = self.send_save_command() {
-                    error!("Failed to save profile: {}", e);
+                    let err_msg = format!("Failed to save profile: {}", e);
+                    error!(err_msg);
+                    self.add_error(err_msg);
                 }
             }
             _ => {}
@@ -462,46 +471,16 @@ impl BorgTui {
                 .unwrap_or_else(|| Duration::from_secs(0));
             // Remove finished popups
             self.popup_stack.retain(|popup| !popup.is_done());
+            // Handle keyboard input
             if crossterm::event::poll(timeout)? {
                 if let Event::Key(key) = event::read()? {
-                    match self.popup_stack.last_mut() {
-                        Some(popup) => popup.handle_key(key, &self.directory_suggestions),
+                    match self.popup_stack.pop() {
+                        Some(mut popup) => {
+                            popup.handle_key(key, self);
+                            self.popup_stack.insert(0, popup);
+                        }
                         None => self.handle_keyboard_input(key)?,
                     }
-                    // match self.editing_state {
-                    //     EditingState::Normal => self.handle_keyboard_input(key)?,
-                    //     EditingState::Editing => {
-                    //         // TODO: How do we associate a function with the enter press?
-                    //         match key.code {
-                    //             KeyCode::Backspace => {
-                    //                 self.input_buffer.pop();
-                    //                 self.input_buffer_changed = true;
-                    //             }
-                    //             KeyCode::Tab => {
-                    //                 if let Some(res) = self.directory_suggestions.first() {
-                    //                     let res = res.to_string_lossy().to_string();
-                    //                     // TODO: This will cycle the ending forward slash on and off
-                    //                     if self.input_buffer == res {
-                    //                         // TODO: Handle windows backslash maybe never?
-                    //                         self.input_buffer.push('/');
-                    //                     } else {
-                    //                         self.input_buffer = res;
-                    //                     }
-                    //                     self.input_buffer_changed = true;
-                    //                 }
-                    //             }
-                    //             KeyCode::Char(c) => {
-                    //                 self.input_buffer.push(c);
-                    //                 self.input_buffer_changed = true;
-                    //             }
-                    //             KeyCode::Enter => info!("input_buffer: {}", self.input_buffer),
-                    //             KeyCode::Esc => {
-                    //                 self.editing_state = EditingState::Normal;
-                    //             }
-                    //             _ => {}
-                    //         };
-                    //     }
-                    // }
                 }
             }
             if last_tick.elapsed() >= self.tick_rate {
@@ -516,6 +495,20 @@ impl BorgTui {
 
     fn add_error(&mut self, error: String) {
         self.popup_stack.push(ErrorPopup::new(error).into())
+    }
+
+    fn add_backup_path_to_profile(
+        &mut self,
+        path: String,
+        signal_success: Arc<AtomicBool>,
+    ) -> BorgResult<()> {
+        self.command_channel
+            .blocking_send(Command::AddBackupPathAndSave(
+                self.profile.clone(),
+                path,
+                signal_success,
+            ))?;
+        Ok(())
     }
 
     fn send_backup_dir_size_command(&mut self, dir: PathBuf) -> BorgResult<()> {
@@ -640,7 +633,7 @@ impl BorgTui {
                 }
             }
             CommandResponse::Info(info_string) => {
-                info!(info_string); // Make sure it ends up in the logfile
+                info!(info_string);
                 self.info_logs.push_back(info_string)
             }
             CommandResponse::ListArchiveResult(list_archive_result) => {
@@ -655,6 +648,27 @@ impl BorgTui {
                 }
             }
             CommandResponse::Error(error_message) => self.add_error(error_message),
+            CommandResponse::ProfileUpdated(profile) => {
+                self.info_logs.push_back("Profile updated.".to_string());
+                // TODO: Refactor this to be nicer.
+                self.profile = profile;
+                let paths_to_add: Vec<_> = self
+                    .profile
+                    .backup_paths()
+                    .iter()
+                    .filter(|path| !self.backup_path_sizes.contains_key(*path))
+                    .cloned()
+                    .collect();
+                for backup_path in paths_to_add {
+                    if let Err(e) = self.send_backup_dir_size_command(backup_path.clone()) {
+                        self.add_error(format!(
+                            "Failed to determine the size of backup path {}: {}",
+                            backup_path.to_string_lossy(),
+                            e
+                        ))
+                    }
+                }
+            }
         }
     }
 
@@ -831,7 +845,6 @@ impl BorgTui {
                     // TODO: Make these bounds dynamic based on the data!
                     .bounds([y_min, y_max]),
             );
-        // .hidden_legend_constraints((Constraint::Ratio(1, 1), Constraint::Ratio(1, 1)));
         frame.render_widget(chart, area);
     }
 

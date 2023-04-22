@@ -14,5 +14,6 @@ CLOSED: [2023-04-16 Sun 16:28]
 ** DONE Have a basic profile view
 CLOSED: [2023-04-16 Sun 16:28]
 ** TODO Have a severity for info_logs
-** TODO Have the ability to add backup paths from the tui
+** DONE Have the ability to add backup paths from the tui
+CLOSED: [2023-04-21 Fri 22:21]
 ** TODO Have the ability to list archives per-repo

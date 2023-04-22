@@ -14,7 +14,7 @@ use walkdir::WalkDir;
 use crate::borgtui::{BorgTui, Command, CommandResponse};
 use crate::cli::Action;
 use crate::profiles::Profile;
-use crate::types::{send_info, BorgResult, PrettyBytes};
+use crate::types::{send_error, send_info, BorgResult, PrettyBytes};
 
 mod borg;
 mod borgtui;
@@ -76,8 +76,15 @@ async fn handle_tui_command(
                 format!("Saved profile '{}'", profile.name()),
                 "Failed to save profile: {}"
             );
-            profile.save_profile().await.map(|_| false)
+            if let Err(e) = profile.save_profile().await {
+                send_error!(
+                    command_response_send,
+                    format!("Failed to save profile: {}", e)
+                );
+            };
+            Ok(false)
         }
+
         Command::DetermineDirectorySize(path, byte_count_atomic) => {
             tokio::task::spawn_blocking(|| determine_directory_size(path, byte_count_atomic));
             Ok(false)
@@ -121,6 +128,19 @@ async fn handle_tui_command(
             });
             Ok(false)
         }
+        Command::AddBackupPathAndSave(mut profile, path, successfully_saved) => {
+            let path = PathBuf::try_from(path)?;
+            profile.add_backup_path(path).await?;
+            profile.save_profile().await?;
+            successfully_saved.store(true, Ordering::SeqCst);
+            if let Err(e) = command_response_send
+                .send(CommandResponse::ProfileUpdated(profile))
+                .await
+            {
+                error!("Failed to send updated profile: {}", e)
+            }
+            Ok(false)
+        }
         Command::Quit => Ok(true),
     }
 }
@@ -139,7 +159,10 @@ async fn setup_tui() -> BorgResult<JoinHandle<()>> {
     while let Some(command) = command_recv.recv().await {
         match handle_tui_command(command, response_send.clone(), dir_finder.clone()).await {
             Ok(true) => return Ok(res),
-            Err(e) => error!("Failed to handle tui command: {}", e),
+            Err(e) => {
+                error!("Failed to handle tui command: {}", e);
+                send_error!(response_send, format!("{}", e));
+            }
             _ => {}
         }
     }
@@ -178,6 +201,7 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
                 error!("Received SuggestionResults in non-interactive!")
             }
             CommandResponse::Error(error_message) => error!(error_message),
+            CommandResponse::ProfileUpdated(_profile) => info!("Profile updated."),
         }
     }
 }

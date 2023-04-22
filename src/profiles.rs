@@ -3,9 +3,8 @@ use std::{
     sync::Arc,
 };
 
-// use tokio::fs::meta
 use crate::types::BorgResult;
-use anyhow::Context;
+use anyhow::{bail, Context};
 use borgbackup::common::CreateOptions;
 use keyring::Entry;
 
@@ -254,6 +253,16 @@ impl Profile {
                 path.display(), self.name
             )
         })?;
+        let canonical_path = tokio::fs::canonicalize(&path).await.with_context(|| {
+            format!(
+                "Failed to canonicalize path {} when adding to profile {}. Does the path exist?",
+                path.display(),
+                self.name
+            )
+        })?;
+        if canonical_path != path {
+            bail!("Attempted to add relative path or path that contained symlinks. \nAttempted='{}',\nCanonical='{}'", path.to_string_lossy(), canonical_path.to_string_lossy());
+        }
         self.backup_paths.push(path);
         Ok(())
     }
