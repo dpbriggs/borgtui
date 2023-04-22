@@ -951,21 +951,31 @@ impl BorgTui {
             .constraints(backup_constraints.as_ref())
             .split(area);
         for ((repo_name, list_archive), area) in repos_with_archives.into_iter().zip(areas) {
-            let list_items = match list_archive {
+            let archive_rows = match list_archive {
                 Some(list_archive) => {
                     // TODO: Consider using a table to show the date!
                     list_archive
                         .archives
                         .iter()
                         .rev() // TODO: Don't reverse in the UI. Make the original data in descending order
-                        .map(|archive| ListItem::new(archive.name.clone()))
-                        .collect()
+                        .map(|archive| {
+                            Row::new([
+                                Cell::from(format!(
+                                    "{}",
+                                    // TODO: This is a bit a goofy
+                                    archive.start.format("%b %d %Y %H:%M:%S")
+                                )),
+                                Cell::from(archive.name.clone()),
+                            ])
+                        })
+                        .collect::<Vec<_>>()
                 }
-                None => vec![ListItem::new("Still fetching...")],
+                None => vec![Row::new([Cell::from("Still fetching..."), Cell::from("")])],
             };
-            let repo_list = List::new(list_items)
+            let archive_table = Table::new(archive_rows)
+                .widths(&[Constraint::Percentage(30), Constraint::Percentage(70)])
                 .block(Block::default().borders(Borders::ALL).title(repo_name));
-            frame.render_widget(repo_list, area)
+            frame.render_widget(archive_table, area)
         }
     }
     // fn draw_archive_list<B: Backend>(&self, repo: &(), frame: &mut Frame<B>, area: Rect) {}
