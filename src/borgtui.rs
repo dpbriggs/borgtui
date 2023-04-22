@@ -38,6 +38,7 @@ pub(crate) enum Command {
     SaveProfile(Profile),
     UpdateProfileAndSave(Profile, ProfileOperation, Arc<AtomicBool>),
     ListArchives(Repository),
+    Compact(Repository),
     DetermineDirectorySize(PathBuf, Arc<AtomicU64>),
     GetDirectorySuggestionsFor(String),
     Quit,
@@ -437,6 +438,15 @@ impl BorgTui {
                     self.add_error(err_msg);
                 }
             }
+            KeyCode::Char('c') => {
+                self.info_logs
+                    .push_back("Compacting each repo...".to_string());
+                if let Err(e) = self.send_compact_command() {
+                    let err_msg = format!("Failed to start compacting: {}", e);
+                    error!(err_msg);
+                    self.add_error(err_msg);
+                }
+            }
             _ => {}
         }
         Ok(())
@@ -525,6 +535,14 @@ impl BorgTui {
     fn send_create_command(&mut self) -> BorgResult<()> {
         let command = Command::CreateBackup(self.profile.clone());
         self.command_channel.blocking_send(command)?;
+        Ok(())
+    }
+
+    fn send_compact_command(&mut self) -> BorgResult<()> {
+        for repo in self.profile.repos() {
+            let command = Command::Compact(repo.clone());
+            self.command_channel.blocking_send(command)?;
+        }
         Ok(())
     }
 
@@ -959,6 +977,7 @@ impl BorgTui {
             Spans::from("• Press 'l' to list archives"),
             Spans::from("• Press 'a' to add a backup path"),
             Spans::from("• Press 's' to save profile"),
+            Spans::from("• Press 'c' to compact"),
         ];
         let info_panel = Paragraph::new(text)
             .wrap(Wrap { trim: true })

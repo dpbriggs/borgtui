@@ -98,7 +98,6 @@ async fn handle_tui_command(
             };
             Ok(false)
         }
-
         Command::DetermineDirectorySize(path, byte_count_atomic) => {
             tokio::task::spawn_blocking(|| determine_directory_size(path, byte_count_atomic));
             Ok(false)
@@ -119,6 +118,11 @@ async fn handle_tui_command(
                     }
                 }
             });
+            Ok(false)
+        }
+        Command::Compact(repo) => {
+            borg::compact(&repo).await?;
+            send_info!(command_response_send, format!("Compacted {}", repo));
             Ok(false)
         }
         Command::GetDirectorySuggestionsFor(directory) => {

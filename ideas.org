@@ -13,7 +13,12 @@ CLOSED: [2023-04-16 Sun 16:28]
 CLOSED: [2023-04-16 Sun 16:28]
 ** DONE Have a basic profile view
 CLOSED: [2023-04-16 Sun 16:28]
-** TODO Have a severity for info_logs
 ** DONE Have the ability to add backup paths from the tui
 CLOSED: [2023-04-21 Fri 22:21]
 ** TODO Have the ability to list archives per-repo
+** DONE Have a severity for info_logs
+CLOSED: [2023-04-22 Sat 10:06]
+Not quite the spirit but we have error logs now.
+** TODO Watch the profile config file and update it when it's edited externally
+** TODO Add compaction
+** TODO Make list archives a table

@@ -6,7 +6,7 @@ use crate::{
 use anyhow::anyhow;
 use borgbackup::{
     asynchronous as borg_async,
-    common::{CommonOptions, ListOptions},
+    common::{CommonOptions, CompactOptions, ListOptions},
     output::list::ListRepository,
 };
 use tokio::sync::mpsc;
@@ -105,4 +105,13 @@ pub(crate) async fn list_archives(repo: &Repository) -> BorgResult<ListRepositor
                 e
             )
         })
+}
+
+pub(crate) async fn compact(repo: &Repository) -> BorgResult<()> {
+    let compact_options = CompactOptions {
+        repository: repo.get_path(),
+    };
+    borg_async::compact(&compact_options, &CommonOptions::default())
+        .await
+        .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.get_path(), e))
 }
