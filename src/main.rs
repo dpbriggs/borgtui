@@ -288,7 +288,11 @@ async fn handle_action(
         Action::List { profile } => {
             let profile = Profile::try_open_profile_or_create_default(&profile).await?;
             for repo in profile.repositories() {
-                borg::list_archives(repo).await?;
+                let list_archives_per_repo = borg::list_archives(repo).await?;
+                let repo = list_archives_per_repo.repository.location;
+                for archives in list_archives_per_repo.archives {
+                    info!("{}::{}", repo, archives.name);
+                }
             }
             Ok(())
         }
