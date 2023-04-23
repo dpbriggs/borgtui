@@ -268,7 +268,7 @@ async fn handle_action(
         Action::AddRepo {
             repository,
             no_encryption,
-            encryption_passphrase,
+            borg_passphrase,
             store_passphase_in_cleartext,
         } => {
             // TODO: Check if repo is valid
@@ -280,7 +280,7 @@ async fn handle_action(
                     profile
                 );
             }
-            let passphrase = match encryption_passphrase {
+            let passphrase = match borg_passphrase {
                 Some(passphrase) => Some(passphrase),
                 None => {
                     if no_encryption {

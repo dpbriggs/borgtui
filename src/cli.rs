@@ -20,7 +20,7 @@ pub(crate) enum Action {
     Init {
         /// The profile to use. If not specified, the default profile
         /// will be used.
-        #[arg(env, short, long)]
+        #[arg(env, short = 'e', long)]
         borg_passphrase: String,
 
         /// The repo location
@@ -54,10 +54,10 @@ pub(crate) enum Action {
         #[arg(short, long, default_value = "true")]
         no_encryption: bool,
 
-        /// The encryption passphrase to use. If not specified and borgtui
-        /// called in an interactive terminal, the user will be prompted.
-        #[arg(short, long)]
-        encryption_passphrase: Option<String>,
+        /// The profile to use. If not specified, the default profile
+        /// will be used.
+        #[arg(env, short, long)]
+        borg_passphrase: Option<String>,
 
         /// If true, store the encryption passphrase in cleartext in the
         /// configuration file. This is not recommended.
