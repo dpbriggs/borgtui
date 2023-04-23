@@ -248,7 +248,9 @@ async fn handle_action(
         Action::Create => {
             let profile = Profile::try_open_profile_or_create_default(&profile).await?;
             info!("Creating backup for profile {}", profile);
-            borg::create_backup(&profile, command_response_send).await?;
+            let handle =
+                borg::create_backup_with_notification(&profile, command_response_send).await?;
+            handle.await?;
             Ok(())
         }
         Action::Add { directory } => {

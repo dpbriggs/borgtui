@@ -1,9 +1,9 @@
-use std::num::NonZeroU16;
+use std::{num::NonZeroU16, sync::Arc, time::Instant};
 
 use crate::{
     borgtui::CommandResponse,
     profiles::{Profile, Repository},
-    types::{send_error, send_info, BorgResult},
+    types::{log_on_error, send_error, send_info, BorgResult},
 };
 use anyhow::anyhow;
 use borgbackup::{
@@ -13,7 +13,11 @@ use borgbackup::{
     },
     output::list::ListRepository,
 };
-use tokio::sync::mpsc;
+use notify_rust::Notification;
+use tokio::{
+    sync::{mpsc, Semaphore},
+    task::JoinHandle,
+};
 use tracing::{error, info};
 
 fn archive_name(name: &str) -> String {
@@ -39,9 +43,53 @@ pub(crate) async fn init(borg_passphrase: String, repo_loc: String) -> BorgResul
     Ok(())
 }
 
+pub(crate) async fn create_backup_with_notification(
+    profile: &Profile,
+    progress_channel: mpsc::Sender<CommandResponse>,
+) -> BorgResult<JoinHandle<()>> {
+    let completion_semaphore = Arc::new(Semaphore::new(0));
+    let num_repos = profile.num_repos();
+    let profile_name = format!("{}", profile);
+    let completion_semaphore_clone = completion_semaphore.clone();
+    let join_handle = tokio::spawn(async move {
+        let start_time = Instant::now();
+        if let Err(e) = completion_semaphore_clone
+            .acquire_many(num_repos as u32)
+            .await
+        {
+            error!("Failed to wait on completion semaphore: {}", e);
+        } else {
+            let elapsed_duration = start_time.elapsed();
+            let nicely_formatted = format!(
+                "{:0>2}:{:0>2}:{:0>2}",
+                elapsed_duration.as_secs() / 60 / 60,
+                elapsed_duration.as_secs() / 60 % 60,
+                elapsed_duration.as_secs() % 60
+            );
+            log_on_error!(
+                Notification::new()
+                    .summary(&format!("Backup complete for {}", profile_name))
+                    .body(&format!("Completed in {}", nicely_formatted))
+                    .show_async()
+                    .await,
+                "Failed to show notification: {}"
+            );
+        }
+    });
+    create_backup_internal(profile, progress_channel, completion_semaphore).await?;
+    Ok(join_handle)
+}
 pub(crate) async fn create_backup(
     profile: &Profile,
     progress_channel: mpsc::Sender<CommandResponse>,
+) -> BorgResult<()> {
+    create_backup_internal(profile, progress_channel, Arc::new(Semaphore::new(0))).await
+}
+
+pub(crate) async fn create_backup_internal(
+    profile: &Profile,
+    progress_channel: mpsc::Sender<CommandResponse>,
+    completion_semaphore: Arc<Semaphore>,
 ) -> BorgResult<()> {
     let archive_name = archive_name(profile.name());
     for (create_option, repo) in profile.borg_create_options(archive_name)? {
@@ -81,14 +129,16 @@ pub(crate) async fn create_backup(
         });
 
         let progress_channel_clone = progress_channel.clone();
+        let completion_semaphore_clone = completion_semaphore.clone();
         tokio::spawn(async move {
-            match borg_async::create_progress(
+            let res = borg_async::create_progress(
                 &create_option,
                 &CommonOptions::default(),
                 create_progress_send,
             )
-            .await
-            {
+            .await;
+            completion_semaphore_clone.add_permits(1);
+            match res {
                 Ok(c) => info!("Archive created successfully: {:?}", c.archive.stats),
                 // TODO: Send this error message along that channel
                 Err(e) => send_error!(
