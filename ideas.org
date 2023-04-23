@@ -22,6 +22,12 @@ Not quite the spirit but we have error logs now.
 CLOSED: [2023-04-22 Sat 10:18]
 ** DONE Make list archives a table
 CLOSED: [2023-04-22 Sat 20:08]
+** DONE Paths with spaces in them are broken!
+CLOSED: [2023-04-22 Sat 21:14]
+Thanks Matti for the quote idea!
 ** TODO Have the ability to list archives per-repo
 ** TODO Watch the profile config file and update it when it's edited externally
 ** TODO Add mounting support
+** TODO Add a special wrapper type for the passphrase
+** TODO Have a cli command to create a new profile
+** TODO Automatically canonicalize paths in the backup directory chooser

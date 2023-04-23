@@ -1,4 +1,3 @@
-#![allow(unused)]
 pub(crate) type BorgResult<T> = anyhow::Result<T>;
 
 use std::{
@@ -56,7 +55,6 @@ macro_rules! log_on_error {
     };
 }
 pub(crate) use log_on_error;
-use tracing::debug;
 
 #[derive(Debug, Default)]
 pub(crate) struct RingBuffer<T> {
@@ -80,20 +78,12 @@ impl<T> RingBuffer<T> {
         }
     }
 
-    pub(crate) fn front(&self) -> Option<&T> {
-        self.deque.front()
-    }
-
     pub(crate) fn back(&self) -> Option<&T> {
         self.deque.back()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
         self.deque.is_empty()
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.deque.len()
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &T> {

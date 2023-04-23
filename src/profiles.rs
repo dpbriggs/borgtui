@@ -181,7 +181,7 @@ impl Profile {
                 archive_name.clone(),
                 self.backup_paths
                     .iter()
-                    .map(|path| path.to_string_lossy().to_string())
+                    .map(|path| format!("'{}'", path.to_string_lossy()))
                     .collect::<Vec<String>>(),
                 vec![],
             );

@@ -7,48 +7,46 @@ use clap::{Parser, Subcommand};
 pub(crate) struct Args {
     #[command(subcommand)]
     pub(crate) action: Option<Action>,
+
+    /// The profile to use. If not specified, the default profile
+    /// will be used.
+    #[arg(env, short = 'p', long = "profile")]
+    pub(crate) borgtui_profile: Option<String>,
 }
 
 #[derive(Subcommand, Debug, Clone)]
 pub(crate) enum Action {
-    /// Initialize a new borg repository
-    Init,
-    /// Create a new backup
-    Create {
+    /// Initialize a new borg repository and add it to a profile
+    Init {
         /// The profile to use. If not specified, the default profile
         /// will be used.
+        #[arg(env, short, long)]
+        borg_passphrase: String,
+
+        /// The repo location
         #[arg(short, long)]
-        profile: Option<String>,
+        location: String,
+
+        /// Do not store the passphrase in the keyring
+        #[arg(short, long)]
+        do_not_store_in_keyring: bool,
     },
+    /// Create a new backup
+    Create,
     /// Add a directory or file to backup
     Add {
         /// The directory or file path to add to backup
         directory: PathBuf,
-
-        /// The profile to use. If not specified, the default profile
-        /// will be used.
-        #[arg(short, long)]
-        profile: Option<String>,
     },
     /// Add a directory or file to backup
     Remove {
         /// The directory or file path to add to backup
         directory: PathBuf,
-
-        /// The profile to use. If not specified, the default profile
-        /// will be used.
-        #[arg(short, long)]
-        profile: Option<String>,
     },
     /// Add a directory or file to backup
     AddRepo {
         /// The directory or file path to add to backup
         repository: String,
-
-        /// The profile to use. If not specified, the default profile
-        /// will be used.
-        #[arg(short, long)]
-        profile: Option<String>,
 
         // TODO: Simplify these options!
         /// The encryption passphrase to use. If not specified and borgtui
@@ -67,12 +65,9 @@ pub(crate) enum Action {
         store_passphase_in_cleartext: bool,
     },
     /// List the archives in a directory
-    List {
-        /// The profile to use. If not specified, the default profile
-        /// will be used.
-        #[arg(short, long)]
-        profile: Option<String>,
-    },
+    List,
+    Compact,
+    Prune,
 }
 
 pub(crate) fn get_args() -> Args {

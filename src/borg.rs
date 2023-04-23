@@ -8,7 +8,9 @@ use crate::{
 use anyhow::anyhow;
 use borgbackup::{
     asynchronous as borg_async,
-    common::{CommonOptions, CompactOptions, ListOptions, PruneOptions},
+    common::{
+        CommonOptions, CompactOptions, EncryptionMode, InitOptions, ListOptions, PruneOptions,
+    },
     output::list::ListRepository,
 };
 use tokio::sync::mpsc;
@@ -26,6 +28,15 @@ fn archive_name(name: &str) -> String {
 pub(crate) struct BorgCreateProgress {
     pub(crate) repository: String,
     pub(crate) create_progress: borg_async::CreateProgress,
+}
+
+// TODO: Make a wrapper type for the passphrase
+pub(crate) async fn init(borg_passphrase: String, repo_loc: String) -> BorgResult<()> {
+    let init_options = InitOptions::new(repo_loc, EncryptionMode::Repokey(borg_passphrase));
+    borg_async::init(&init_options, &CommonOptions::default())
+        .await
+        .map_err(|e| anyhow!("Failed to init repo: {}", e))?;
+    Ok(())
 }
 
 pub(crate) async fn create_backup(

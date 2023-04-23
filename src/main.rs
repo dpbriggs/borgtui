@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use anyhow::{bail, Context};
 use borgbackup::asynchronous::CreateProgress;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
 use types::{log_on_error, DirectoryFinder};
 use walkdir::WalkDir;
@@ -165,8 +165,8 @@ async fn handle_tui_command(
     }
 }
 
-async fn setup_tui() -> BorgResult<JoinHandle<()>> {
-    let profile = Profile::try_open_profile_or_create_default(&None).await?;
+async fn setup_tui(profile: Option<String>) -> BorgResult<JoinHandle<()>> {
+    let profile = Profile::try_open_profile_or_create_default(&profile).await?;
     let (command_send, mut command_recv) = mpsc::channel::<Command>(QUEUE_SIZE);
     let (response_send, response_recv) = mpsc::channel::<CommandResponse>(QUEUE_SIZE);
     let res = std::thread::spawn(move || {
@@ -228,26 +228,37 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
 
 async fn handle_action(
     action: Action,
+    profile: Option<String>,
     command_response_send: mpsc::Sender<CommandResponse>,
 ) -> BorgResult<()> {
     match action {
-        Action::Init => {
-            todo!()
+        Action::Init {
+            borg_passphrase,
+            location,
+            do_not_store_in_keyring,
+        } => {
+            let _ = do_not_store_in_keyring;
+            let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            borg::init(borg_passphrase.clone(), location.clone()).await?;
+            profile.add_repository(location.clone(), Some(borg_passphrase), false)?;
+            profile.save_profile().await?;
+            info!("Added repo: {}", location);
+            Ok(())
         }
-        Action::Create { profile } => {
+        Action::Create => {
             let profile = Profile::try_open_profile_or_create_default(&profile).await?;
             info!("Creating backup for profile {}", profile);
             borg::create_backup(&profile, command_response_send).await?;
             Ok(())
         }
-        Action::Add { directory, profile } => {
+        Action::Add { directory } => {
             let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
             profile.add_backup_path(directory.clone()).await?;
             profile.save_profile().await?;
             info!("Added {} to profile {}", directory.display(), profile);
             Ok(())
         }
-        Action::Remove { directory, profile } => {
+        Action::Remove { directory } => {
             let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
             profile.remove_backup_path(&directory);
             profile.save_profile().await?;
@@ -256,7 +267,6 @@ async fn handle_action(
         }
         Action::AddRepo {
             repository,
-            profile,
             no_encryption,
             encryption_passphrase,
             store_passphase_in_cleartext,
@@ -285,7 +295,7 @@ async fn handle_action(
             info!("Added repository {} to profile {}", repository, profile);
             Ok(())
         }
-        Action::List { profile } => {
+        Action::List => {
             let profile = Profile::try_open_profile_or_create_default(&profile).await?;
             for repo in profile.repositories() {
                 let list_archives_per_repo = borg::list_archives(repo).await?;
@@ -293,6 +303,22 @@ async fn handle_action(
                 for archives in list_archives_per_repo.archives {
                     info!("{}::{}", repo, archives.name);
                 }
+            }
+            Ok(())
+        }
+        Action::Compact => {
+            let profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            for repo in profile.repositories() {
+                borg::compact(repo).await?;
+                info!("Finished compacting {}", repo);
+            }
+            Ok(())
+        }
+        Action::Prune => {
+            let profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            for repo in profile.repositories() {
+                borg::prune(repo).await?;
+                info!("Finished pruning {}", repo);
             }
             Ok(())
         }
@@ -322,14 +348,14 @@ fn main() -> BorgResult<()> {
                 Some(action) => {
                     let (send, recv) = mpsc::channel::<CommandResponse>(QUEUE_SIZE);
                     let handle = tokio::spawn(async move { handle_command_response(recv).await });
-                    if let Err(e) = handle_action(action, send).await {
+                    if let Err(e) = handle_action(action, args.borgtui_profile, send).await {
                         error!("Error handling CLI action: {}", e)
                     };
                     handle.await
                 }
                 // TODO: Is failing to join here a bad idea?
                 None => {
-                    match setup_tui().await {
+                    match setup_tui(args.borgtui_profile).await {
                         Ok(join_handle) => tui_join_handle = Some(join_handle),
                         Err(e) => error!("Failed to setup tui: {}", e),
                     }
@@ -342,7 +368,6 @@ fn main() -> BorgResult<()> {
                 std::process::exit(1);
             }
         });
-    debug!("below tokio runtime");
     if let Some(join_handle) = tui_join_handle {
         join_handle.join().unwrap();
     }

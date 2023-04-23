@@ -12,7 +12,7 @@ atty = "0.2.14"
 # borgbackup = { git = "https://github.com/myOmikron/borgbackup.git", rev = "7508b51", features = ["tokio"]}
 borgbackup = { git = "https://github.com/dpbriggs/borgbackup-fork.git", rev = "6b25a53", features = ["tokio"]}
 chrono = "0.4.24"
-clap = { version = "4.2.0", features = ["derive"] }
+clap = { version = "4.2.0", features = ["derive", "env"] }
 crossterm = "0.26.1"
 dirs = "5.0.0"
 keyring = "2.0.1"
