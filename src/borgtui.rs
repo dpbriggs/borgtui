@@ -40,7 +40,7 @@ pub(crate) enum Command {
     ListArchives(Repository),
     Compact(Repository),
     Prune(Repository),
-    DetermineDirectorySize(PathBuf, Arc<AtomicU64>),
+    DetermineDirectorySize(PathBuf, Arc<AtomicU64>, Vec<String>),
     GetDirectorySuggestionsFor(String),
     Quit,
 }
@@ -468,7 +468,10 @@ impl BorgTui {
             .to_vec()
             .iter()
             .for_each(|backup_path| {
-                if let Err(e) = self.send_backup_dir_size_command(backup_path.clone()) {
+                if let Err(e) = self.send_backup_dir_size_command(
+                    backup_path.clone(),
+                    self.profile.exclude_patterns().to_vec(),
+                ) {
                     tracing::error!(
                         "Failed to query directory size for {}: {}",
                         backup_path.display(),
@@ -534,14 +537,22 @@ impl BorgTui {
         Ok(())
     }
 
-    fn send_backup_dir_size_command(&mut self, dir: PathBuf) -> BorgResult<()> {
+    fn send_backup_dir_size_command(
+        &mut self,
+        dir: PathBuf,
+        exclude_patterns: Vec<String>,
+    ) -> BorgResult<()> {
         let byte_count = self
             .backup_path_sizes
             .entry(dir.clone())
             .or_default()
             .clone();
         self.command_channel
-            .blocking_send(Command::DetermineDirectorySize(dir, byte_count))?;
+            .blocking_send(Command::DetermineDirectorySize(
+                dir,
+                byte_count,
+                exclude_patterns,
+            ))?;
         Ok(())
     }
 
@@ -698,7 +709,10 @@ impl BorgTui {
                     .cloned()
                     .collect();
                 for backup_path in paths_to_add {
-                    if let Err(e) = self.send_backup_dir_size_command(backup_path.clone()) {
+                    if let Err(e) = self.send_backup_dir_size_command(
+                        backup_path.clone(),
+                        self.profile.exclude_patterns().to_vec(),
+                    ) {
                         self.add_error(format!(
                             "Failed to determine the size of backup path {}: {}",
                             backup_path.to_string_lossy(),

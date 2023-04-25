@@ -291,6 +291,7 @@ dependencies = [
  "clap",
  "crossterm 0.26.1",
  "dirs 5.0.0",
+ "glob",
  "keyring",
  "notify-rust",
  "once_cell",
@@ -800,6 +801,12 @@ dependencies = [
  "libc",
  "wasi 0.11.0+wasi-snapshot-preview1",
 ]
+
+[[package]]
+name = "glob"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2fabcfbdc87f4758337ca535fb41a6d701b65693ce38287d856d1674551ec9b"
 
 [[package]]
 name = "hashbrown"

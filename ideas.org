@@ -31,3 +31,5 @@ Thanks Matti for the quote idea!
 ** TODO Add a special wrapper type for the passphrase
 ** TODO Have a cli command to create a new profile
 ** TODO Automatically canonicalize paths in the backup directory chooser
+** DONE Add exclude patterns
+CLOSED: [2023-04-24 Mon 20:13]

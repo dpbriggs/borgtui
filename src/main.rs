@@ -34,8 +34,31 @@ fn try_get_initial_repo_password() -> BorgResult<Option<String>> {
     }
 }
 
-fn determine_directory_size(path: PathBuf, byte_count: Arc<AtomicU64>) {
-    for entry in WalkDir::new(path) {
+fn determine_directory_size(
+    path: PathBuf,
+    byte_count: Arc<AtomicU64>,
+    exclude_patterns: Vec<String>,
+) {
+    let patterns = exclude_patterns
+        .iter()
+        .map(|s| glob::Pattern::new(s.as_str()))
+        .collect::<Result<Vec<_>, _>>();
+    let patterns = match patterns {
+        Ok(pat) => pat,
+        Err(e) => {
+            error!(
+                "Failed to create glob patterns from exclude_patterns: {}",
+                e
+            );
+            vec![]
+        }
+    };
+    let all_files = WalkDir::new(path).into_iter().filter_entry(|entry| {
+        !patterns
+            .iter()
+            .any(|pattern| pattern.matches_path(entry.path()))
+    });
+    for entry in all_files {
         let entry = match entry {
             Ok(entry) => entry,
             Err(e) => {
@@ -98,8 +121,10 @@ async fn handle_tui_command(
             };
             Ok(false)
         }
-        Command::DetermineDirectorySize(path, byte_count_atomic) => {
-            tokio::task::spawn_blocking(|| determine_directory_size(path, byte_count_atomic));
+        Command::DetermineDirectorySize(path, byte_count_atomic, exclude_patterns) => {
+            tokio::task::spawn_blocking(|| {
+                determine_directory_size(path, byte_count_atomic, exclude_patterns)
+            });
             Ok(false)
         }
         Command::ListArchives(repo) => {
@@ -169,13 +194,19 @@ async fn setup_tui(profile: Option<String>) -> BorgResult<JoinHandle<()>> {
     let profile = Profile::try_open_profile_or_create_default(&profile).await?;
     let (command_send, mut command_recv) = mpsc::channel::<Command>(QUEUE_SIZE);
     let (response_send, response_recv) = mpsc::channel::<CommandResponse>(QUEUE_SIZE);
+
+    // Directory Finder
+    let mut dir_finder = DirectoryFinder::new();
+    if let Err(e) = dir_finder.seed_exclude_patterns(profile.exclude_patterns()) {
+        error!("Failed to add exclude patterns: {}", e);
+    }
+    let dir_finder = Arc::new(Mutex::new(dir_finder));
     let res = std::thread::spawn(move || {
         let mut tui = BorgTui::new(profile, command_send, response_recv);
         if let Err(e) = tui.run() {
             error!("Failed to run tui: {}", e);
         }
     });
-    let dir_finder = Arc::new(Mutex::new(DirectoryFinder::new()));
     while let Some(command) = command_recv.recv().await {
         match handle_tui_command(command, response_send.clone(), dir_finder.clone()).await {
             Ok(true) => return Ok(res),

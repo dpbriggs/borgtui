@@ -5,7 +5,7 @@ use std::{
 
 use crate::types::BorgResult;
 use anyhow::{bail, Context};
-use borgbackup::common::CreateOptions;
+use borgbackup::common::{CreateOptions, Pattern};
 use keyring::Entry;
 
 use serde::{Deserialize, Serialize};
@@ -76,6 +76,8 @@ pub(crate) enum ProfileOperation {
 pub(crate) struct Profile {
     name: String,
     backup_paths: Vec<PathBuf>,
+    #[serde(default)]
+    exclude_patterns: Vec<String>,
     // TODO: A proper field for this
     repos: Vec<Repository>,
 }
@@ -103,6 +105,7 @@ impl Profile {
     fn blank(name: &str) -> Self {
         Self {
             name: name.to_string(),
+            exclude_patterns: vec![],
             backup_paths: vec![],
             repos: vec![],
         }
@@ -153,6 +156,10 @@ impl Profile {
         &self.repos
     }
 
+    pub(crate) fn exclude_patterns(&self) -> &[String] {
+        &self.exclude_patterns
+    }
+
     pub(crate) fn serialize(&self) -> BorgResult<String> {
         serde_json::to_string_pretty(self)
             .with_context(|| format!("Failed to serialize profile {}", self.name()))
@@ -186,6 +193,12 @@ impl Profile {
                 vec![],
             );
             create_options.passphrase = repo.get_passphrase()?;
+            create_options.excludes = self
+                .exclude_patterns
+                .iter()
+                .cloned()
+                .map(Pattern::Shell)
+                .collect();
             create_options_list.push((create_options, repo));
         }
         Ok(create_options_list)

@@ -22,6 +22,7 @@ macro_rules! send_info {
         }
     };
 }
+use glob::Pattern;
 pub(crate) use send_info;
 
 /// Send a CommandResponse::Info in a channel.
@@ -177,6 +178,7 @@ impl Display for PrettyBytes {
 pub(crate) struct DirectoryFinder {
     known_directories: BTreeSet<PathBuf>,
     num_updates: usize,
+    exclude_patterns: Vec<glob::Pattern>,
 }
 
 impl DirectoryFinder {
@@ -185,7 +187,16 @@ impl DirectoryFinder {
         Self {
             known_directories: BTreeSet::new(),
             num_updates: 0,
+            exclude_patterns: vec![],
         }
+    }
+
+    pub(crate) fn seed_exclude_patterns(&mut self, exclude_patterns: &[String]) -> BorgResult<()> {
+        self.exclude_patterns = exclude_patterns
+            .iter()
+            .map(|s| Pattern::new(s.as_str()))
+            .collect::<Result<_, _>>()?;
+        Ok(())
     }
 
     pub(crate) fn seed_from_directory(&mut self, directory: PathBuf, max_depth: usize) {
@@ -193,6 +204,12 @@ impl DirectoryFinder {
             .max_depth(max_depth)
             .follow_links(true)
             .into_iter()
+            .filter_entry(|entry| {
+                !self
+                    .exclude_patterns
+                    .iter()
+                    .any(|pattern| pattern.matches_path(entry.path()))
+            })
             .filter_map(|e| e.ok())
             .filter(|entry| entry.file_type().is_dir())
             .map(|entry| entry.path().to_owned());
