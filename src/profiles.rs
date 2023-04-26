@@ -5,7 +5,7 @@ use std::{
 
 use crate::types::BorgResult;
 use anyhow::{bail, Context};
-use borgbackup::common::{CreateOptions, Pattern};
+use borgbackup::common::{CommonOptions, CreateOptions, Pattern};
 use keyring::Entry;
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,9 @@ pub(crate) enum Encryption {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Repository {
     pub(crate) path: String,
+    /// SSH command to use when connecting
+    #[serde(default)]
+    pub(crate) rsh: Option<String>,
     encryption: Encryption,
     #[serde(skip)]
     pub(crate) lock: Arc<Mutex<()>>,
@@ -47,6 +50,7 @@ impl Repository {
         Self {
             path,
             encryption,
+            rsh: None,
             lock: Default::default(),
         }
     }
@@ -64,6 +68,13 @@ impl Repository {
 
     pub(crate) fn get_path(&self) -> String {
         self.path.clone()
+    }
+
+    pub(crate) fn common_options(&self) -> CommonOptions {
+        CommonOptions {
+            rsh: self.rsh.clone(),
+            ..Default::default()
+        }
     }
 }
 

@@ -100,6 +100,8 @@ pub(crate) async fn create_backup_internal(
         let (create_progress_send, mut create_progress_recv) =
             mpsc::channel::<borg_async::CreateProgress>(100);
 
+        let common_options = repo.common_options();
+
         let repo_name_clone = create_option.repository.clone();
         let progress_channel_task = progress_channel.clone();
         tokio::spawn(async move {
@@ -131,12 +133,9 @@ pub(crate) async fn create_backup_internal(
         let progress_channel_clone = progress_channel.clone();
         let completion_semaphore_clone = completion_semaphore.clone();
         tokio::spawn(async move {
-            let res = borg_async::create_progress(
-                &create_option,
-                &CommonOptions::default(),
-                create_progress_send,
-            )
-            .await;
+            let res =
+                borg_async::create_progress(&create_option, &common_options, create_progress_send)
+                    .await;
             completion_semaphore_clone.add_permits(1);
             match res {
                 Ok(c) => info!("Archive created successfully: {:?}", c.archive.stats),
@@ -159,7 +158,7 @@ pub(crate) async fn list_archives(repo: &Repository) -> BorgResult<ListRepositor
         repository: repo.get_path(),
         passphrase: repo.get_passphrase()?,
     };
-    borg_async::list(&list_options, &CommonOptions::default())
+    borg_async::list(&list_options, &repo.common_options())
         .await
         .map_err(|e| {
             anyhow!(
@@ -174,7 +173,7 @@ pub(crate) async fn compact(repo: &Repository) -> BorgResult<()> {
     let compact_options = CompactOptions {
         repository: repo.get_path(),
     };
-    borg_async::compact(&compact_options, &CommonOptions::default())
+    borg_async::compact(&compact_options, &repo.common_options())
         .await
         .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.get_path(), e))
 }
@@ -185,7 +184,7 @@ pub(crate) async fn prune(repo: &Repository) -> BorgResult<()> {
     compact_options.keep_daily = NonZeroU16::new(7);
     compact_options.keep_weekly = NonZeroU16::new(4);
     compact_options.keep_monthly = NonZeroU16::new(12);
-    borg_async::prune(&compact_options, &CommonOptions::default())
+    borg_async::prune(&compact_options, &repo.common_options())
         .await
         .map_err(|e| anyhow!("Failed to prune repo {}: {:?}", repo.get_path(), e))
 }
