@@ -1,4 +1,4 @@
-use std::{num::NonZeroU16, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 
 use crate::{
     borgtui::CommandResponse,
@@ -178,12 +178,16 @@ pub(crate) async fn compact(repo: &Repository) -> BorgResult<()> {
         .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.get_path(), e))
 }
 
-pub(crate) async fn prune(repo: &Repository) -> BorgResult<()> {
+pub(crate) async fn prune(
+    repo: &Repository,
+    prune_options: crate::profiles::PruneOptions,
+) -> BorgResult<()> {
     let mut compact_options = PruneOptions::new(repo.get_path());
     compact_options.passphrase = repo.get_passphrase()?;
-    compact_options.keep_daily = NonZeroU16::new(7);
-    compact_options.keep_weekly = NonZeroU16::new(4);
-    compact_options.keep_monthly = NonZeroU16::new(12);
+    compact_options.keep_daily = Some(prune_options.keep_daily);
+    compact_options.keep_weekly = Some(prune_options.keep_weekly);
+    compact_options.keep_monthly = Some(prune_options.keep_monthly);
+    compact_options.keep_yearly = Some(prune_options.keep_yearly);
     borg_async::prune(&compact_options, &repo.common_options())
         .await
         .map_err(|e| anyhow!("Failed to prune repo {}: {:?}", repo.get_path(), e))

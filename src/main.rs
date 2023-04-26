@@ -155,9 +155,9 @@ async fn handle_tui_command(
             });
             Ok(false)
         }
-        Command::Prune(repo) => {
+        Command::Prune(repo, prune_options) => {
             tokio::spawn(async move {
-                if let Err(e) = borg::prune(&repo).await {
+                if let Err(e) = borg::prune(&repo, prune_options).await {
                     send_error!(command_response_send, format!("Failed to prune: {}", e))
                 } else {
                     send_info!(command_response_send, format!("Pruned {}", repo));
@@ -350,7 +350,7 @@ async fn handle_action(
         Action::Prune => {
             let profile = Profile::try_open_profile_or_create_default(&profile).await?;
             for repo in profile.repositories() {
-                borg::prune(repo).await?;
+                borg::prune(repo, profile.prune_options()).await?;
                 info!("Finished pruning {}", repo);
             }
             Ok(())

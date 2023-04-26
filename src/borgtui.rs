@@ -39,7 +39,7 @@ pub(crate) enum Command {
     UpdateProfileAndSave(Profile, ProfileOperation, Arc<AtomicBool>),
     ListArchives(Repository),
     Compact(Repository),
-    Prune(Repository),
+    Prune(Repository, crate::profiles::PruneOptions),
     DetermineDirectorySize(PathBuf, Arc<AtomicU64>, Vec<String>),
     GetDirectorySuggestionsFor(String),
     Quit,
@@ -572,7 +572,7 @@ impl BorgTui {
 
     fn send_prune_command(&mut self) -> BorgResult<()> {
         for repo in self.profile.repos() {
-            let command = Command::Prune(repo.clone());
+            let command = Command::Prune(repo.clone(), self.profile.prune_options());
             self.command_channel.blocking_send(command)?;
         }
         Ok(())

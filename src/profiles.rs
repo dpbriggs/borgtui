@@ -1,4 +1,5 @@
 use std::{
+    num::NonZeroU16,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -78,6 +79,25 @@ impl Repository {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+pub(crate) struct PruneOptions {
+    pub(crate) keep_daily: NonZeroU16,
+    pub(crate) keep_weekly: NonZeroU16,
+    pub(crate) keep_monthly: NonZeroU16,
+    pub(crate) keep_yearly: NonZeroU16,
+}
+
+impl Default for PruneOptions {
+    fn default() -> Self {
+        Self {
+            keep_daily: NonZeroU16::new(4).unwrap(),
+            keep_weekly: NonZeroU16::new(12).unwrap(),
+            keep_monthly: NonZeroU16::new(12).unwrap(),
+            keep_yearly: NonZeroU16::new(12).unwrap(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum ProfileOperation {
     AddBackupPath(PathBuf),
@@ -89,6 +109,8 @@ pub(crate) struct Profile {
     backup_paths: Vec<PathBuf>,
     #[serde(default)]
     exclude_patterns: Vec<String>,
+    #[serde(default)]
+    prune_options: PruneOptions,
     // TODO: A proper field for this
     repos: Vec<Repository>,
 }
@@ -118,6 +140,7 @@ impl Profile {
             name: name.to_string(),
             exclude_patterns: vec![],
             backup_paths: vec![],
+            prune_options: Default::default(),
             repos: vec![],
         }
     }
@@ -165,6 +188,10 @@ impl Profile {
 
     pub(crate) fn repositories(&self) -> &[Repository] {
         &self.repos
+    }
+
+    pub(crate) fn prune_options(&self) -> PruneOptions {
+        self.prune_options
     }
 
     pub(crate) fn exclude_patterns(&self) -> &[String] {
