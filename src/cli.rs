@@ -64,6 +64,16 @@ pub(crate) enum Action {
         #[arg(short, long, default_value = "false")]
         store_passphase_in_cleartext: bool,
     },
+    Mount {
+        /// The directory or file path to add to backup
+        repository_path: String,
+        /// The mount point
+        mountpoint: PathBuf,
+    },
+    Umount {
+        /// The mount point
+        mountpoint: PathBuf,
+    },
     /// List the archives in a directory
     List,
     Compact,

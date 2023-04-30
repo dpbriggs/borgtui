@@ -1,6 +1,6 @@
 [package]
 name = "borgtui"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,8 +9,8 @@ edition = "2021"
 anyhow = "1.0.70"
 atty = "0.2.14"
 # borgbackup = { version = "0.6.2", features = ["tokio"] }
-# borgbackup = { git = "https://github.com/myOmikron/borgbackup.git", rev = "7508b51", features = ["tokio"]}
-borgbackup = { git = "https://github.com/dpbriggs/borgbackup-fork.git", rev = "6b25a53", features = ["tokio"]}
+# borgbackup = { path = "/hdd2/programming/borgbackup-fork", features = ["tokio"] }
+borgbackup = { git = "https://github.com/dpbriggs/borgbackup-fork.git", rev = "0722842", features = ["tokio"]}
 chrono = "0.4.24"
 clap = { version = "4.2.0", features = ["derive", "env"] }
 crossterm = "0.26.1"

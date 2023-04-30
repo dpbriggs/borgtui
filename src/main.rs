@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use borgbackup::asynchronous::CreateProgress;
 use tokio::sync::mpsc;
 use tracing::{error, info};
@@ -353,6 +353,29 @@ async fn handle_action(
                 borg::prune(repo, profile.prune_options()).await?;
                 info!("Finished pruning {}", repo);
             }
+            Ok(())
+        }
+        Action::Mount {
+            repository_path,
+            mountpoint,
+        } => {
+            let profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let repo_name = match repository_path.find("::") {
+                Some(loc) => repository_path[..loc].to_string(),
+                None => repository_path.to_string(),
+            };
+            tracing::debug!("Figured repo name is: {}", repo_name);
+            let repo = profile
+                .repositories()
+                .iter()
+                .find(|repo| repo.path == repo_name)
+                .ok_or_else(|| anyhow!("Could not find repo: {}", repository_path))?;
+            borg::mount(repo, repository_path, mountpoint).await?;
+            Ok(())
+        }
+        Action::Umount { mountpoint } => {
+            borg::umount(mountpoint.clone()).await?;
+            info!("Successfully unmounted {}", mountpoint.to_string_lossy());
             Ok(())
         }
     }

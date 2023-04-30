@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use crate::{
     borgtui::CommandResponse,
@@ -9,7 +9,8 @@ use anyhow::anyhow;
 use borgbackup::{
     asynchronous as borg_async,
     common::{
-        CommonOptions, CompactOptions, EncryptionMode, InitOptions, ListOptions, PruneOptions,
+        CommonOptions, CompactOptions, EncryptionMode, InitOptions, ListOptions, MountOptions,
+        MountSource, PruneOptions,
     },
     output::list::ListRepository,
 };
@@ -191,4 +192,39 @@ pub(crate) async fn prune(
     borg_async::prune(&compact_options, &repo.common_options())
         .await
         .map_err(|e| anyhow!("Failed to prune repo {}: {:?}", repo.get_path(), e))
+}
+
+pub(crate) async fn mount(
+    repo: &Repository,
+    // This could be a repo path (/backup/borgrepo) or an archive (/backup/borgrepo::archive_name)
+    given_repository_path: String,
+    mount_point: PathBuf,
+) -> BorgResult<()> {
+    let mount_source = if given_repository_path.contains("::") {
+        MountSource::Archive {
+            archive_name: given_repository_path,
+        }
+    } else {
+        MountSource::Repository {
+            name: repo.get_path(),
+            first_n_archives: None,
+            last_n_archives: None,
+            glob_archives: None,
+        }
+    };
+    let mut mount_options =
+        MountOptions::new(mount_source, mount_point.to_string_lossy().to_string());
+    mount_options.passphrase = repo.get_passphrase()?;
+    borg_async::mount(&mount_options, &repo.common_options())
+        .await
+        .map_err(|e| anyhow!("Failed to mount repo {}: {}", repo.get_path(), e))
+}
+
+pub(crate) async fn umount(mount_point: PathBuf) -> BorgResult<()> {
+    borg_async::umount(
+        mount_point.to_string_lossy().to_string(),
+        &CommonOptions::default(),
+    )
+    .await
+    .map_err(|e| anyhow!("Failed to umount path {:?}: {}", mount_point, e))
 }

@@ -268,8 +268,8 @@ dependencies = [
 
 [[package]]
 name = "borgbackup"
-version = "0.6.2"
-source = "git+https://github.com/dpbriggs/borgbackup-fork.git?rev=6b25a53#6b25a53ce061a651dfadd8e8227d0930227d4368"
+version = "0.6.3"
+source = "git+https://github.com/dpbriggs/borgbackup-fork.git?rev=0722842#0722842d9e5d372edea9109e341cc7361e75e6a1"
 dependencies = [
  "chrono",
  "log",
@@ -282,7 +282,7 @@ dependencies = [
 
 [[package]]
 name = "borgtui"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "atty",
