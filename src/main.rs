@@ -5,6 +5,7 @@ use std::thread::JoinHandle;
 
 use anyhow::{anyhow, bail, Context};
 use borgbackup::asynchronous::CreateProgress;
+use chrono::Duration;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
@@ -266,12 +267,13 @@ async fn handle_action(
         Action::Init {
             borg_passphrase,
             location,
+            rsh,
             do_not_store_in_keyring,
         } => {
             let _ = do_not_store_in_keyring;
             let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
-            borg::init(borg_passphrase.clone(), location.clone()).await?;
-            profile.add_repository(location.clone(), Some(borg_passphrase), false)?;
+            borg::init(borg_passphrase.clone(), location.clone(), rsh.clone()).await?;
+            profile.add_repository(location.clone(), Some(borg_passphrase), rsh, false)?;
             profile.save_profile().await?;
             info!("Added repo: {}", location);
             Ok(())
@@ -302,6 +304,7 @@ async fn handle_action(
             repository,
             no_encryption,
             borg_passphrase,
+            rsh,
             store_passphase_in_cleartext,
         } => {
             // TODO: Check if repo is valid
@@ -323,15 +326,35 @@ async fn handle_action(
                     }
                 }
             };
-            profile.add_repository(repository.clone(), passphrase, store_passphase_in_cleartext)?;
+            profile.add_repository(
+                repository.clone(),
+                passphrase,
+                rsh,
+                store_passphase_in_cleartext,
+            )?;
             profile.save_profile().await?;
             info!("Added repository {} to profile {}", repository, profile);
             Ok(())
         }
         Action::List => {
             let profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let timeout_duration_secs = profile.action_timeout_seconds() as i64;
             for repo in profile.repositories() {
-                let list_archives_per_repo = borg::list_archives(repo).await?;
+                let list_archives_per_repo = match tokio::time::timeout(
+                    Duration::seconds(timeout_duration_secs).to_std().unwrap(),
+                    borg::list_archives(repo),
+                )
+                .await
+                {
+                    Ok(list_archive_result) => list_archive_result?,
+                    Err(_timeout_error) => {
+                        error!(
+                            "Timeout ({}s) while attempting to list repo {}",
+                            timeout_duration_secs, repo
+                        );
+                        continue;
+                    }
+                };
                 let repo = list_archives_per_repo.repository.location;
                 for archives in list_archives_per_repo.archives {
                     info!("{}::{}", repo, archives.name);

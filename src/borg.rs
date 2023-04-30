@@ -36,11 +36,21 @@ pub(crate) struct BorgCreateProgress {
 }
 
 // TODO: Make a wrapper type for the passphrase
-pub(crate) async fn init(borg_passphrase: String, repo_loc: String) -> BorgResult<()> {
+pub(crate) async fn init(
+    borg_passphrase: String,
+    repo_loc: String,
+    rsh: Option<String>,
+) -> BorgResult<()> {
     let init_options = InitOptions::new(repo_loc, EncryptionMode::Repokey(borg_passphrase));
-    borg_async::init(&init_options, &CommonOptions::default())
-        .await
-        .map_err(|e| anyhow!("Failed to init repo: {}", e))?;
+    borg_async::init(
+        &init_options,
+        &CommonOptions {
+            rsh,
+            ..Default::default()
+        },
+    )
+    .await
+    .map_err(|e| anyhow!("Failed to init repo: {}", e))?;
     Ok(())
 }
 

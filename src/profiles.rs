@@ -47,11 +47,11 @@ fn get_keyring_entry(repo_path: &str) -> BorgResult<Entry> {
 }
 
 impl Repository {
-    pub(crate) fn new(path: String, encryption: Encryption) -> Self {
+    pub(crate) fn new(path: String, encryption: Encryption, rsh: Option<String>) -> Self {
         Self {
             path,
             encryption,
-            rsh: None,
+            rsh,
             lock: Default::default(),
         }
     }
@@ -103,6 +103,11 @@ pub(crate) enum ProfileOperation {
     AddBackupPath(PathBuf),
 }
 
+// Necessary for serde(default)
+const fn default_action_timeout_seconds() -> u64 {
+    30
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Profile {
     name: String,
@@ -111,6 +116,8 @@ pub(crate) struct Profile {
     exclude_patterns: Vec<String>,
     #[serde(default)]
     prune_options: PruneOptions,
+    #[serde(default = "default_action_timeout_seconds")]
+    action_timeout_seconds: u64,
     // TODO: A proper field for this
     repos: Vec<Repository>,
 }
@@ -142,6 +149,7 @@ impl Profile {
             backup_paths: vec![],
             prune_options: Default::default(),
             repos: vec![],
+            action_timeout_seconds: default_action_timeout_seconds(),
         }
     }
 
@@ -188,6 +196,10 @@ impl Profile {
 
     pub(crate) fn repositories(&self) -> &[Repository] {
         &self.repos
+    }
+
+    pub(crate) fn action_timeout_seconds(&self) -> u64 {
+        self.action_timeout_seconds
     }
 
     pub(crate) fn prune_options(&self) -> PruneOptions {
@@ -277,6 +289,7 @@ impl Profile {
         &mut self,
         path: String,
         borg_passphrase: Option<String>,
+        rsh: Option<String>,
         store_passphase_in_cleartext: bool,
     ) -> BorgResult<()> {
         let encryption = match borg_passphrase {
@@ -298,7 +311,7 @@ impl Profile {
             }
             None => Encryption::None,
         };
-        self.repos.push(Repository::new(path, encryption));
+        self.repos.push(Repository::new(path, encryption, rsh));
         Ok(())
     }
 

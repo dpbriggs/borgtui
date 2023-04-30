@@ -30,6 +30,10 @@ pub(crate) enum Action {
         /// Do not store the passphrase in the keyring
         #[arg(short, long)]
         do_not_store_in_keyring: bool,
+
+        /// SSH command to use when connecting to the repo
+        #[arg(short, long)]
+        rsh: Option<String>,
     },
     /// Create a new backup
     Create,
@@ -47,6 +51,10 @@ pub(crate) enum Action {
     AddRepo {
         /// The directory or file path to add to backup
         repository: String,
+
+        /// SSH command to use when connecting to the repo
+        #[arg(short, long)]
+        rsh: Option<String>,
 
         // TODO: Simplify these options!
         /// The encryption passphrase to use. If not specified and borgtui
