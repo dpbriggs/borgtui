@@ -32,6 +32,7 @@ CLOSED: [2023-04-30 Sun 15:56]
 ** DONE Add a special wrapper type for the passphrase
 CLOSED: [2023-04-30 Sun 16:04]
 ** TODO Have a cli command to create a new profile
-** TODO Automatically canonicalize paths in the backup directory chooser
+** DONE Automatically canonicalize paths in the backup directory chooser
+CLOSED: [2023-04-30 Sun 16:11]
 ** DONE Add exclude patterns
 CLOSED: [2023-04-24 Mon 20:13]

@@ -148,12 +148,20 @@ impl AddFileToProfilePopup {
             KeyCode::Tab => {
                 if let Some(res) = borgtui.directory_suggestions.first() {
                     let res = res.to_string_lossy().to_string();
-                    // TODO: This will cycle the ending forward slash on and off
                     if self.input_buffer == res {
                         // TODO: Handle windows backslash maybe never?
                         self.input_buffer.push('/');
                     } else {
-                        self.input_buffer = res;
+                        // canonicalize path if it already ends with a '/'
+                        // TODO: Add a timeout here
+                        if self.input_buffer.starts_with(&res) && self.input_buffer.ends_with('/') {
+                            if let Ok(res) = std::fs::canonicalize(&self.input_buffer) {
+                                self.input_buffer = res.to_string_lossy().to_string();
+                            }
+                        } else {
+                            // Just set input buffer to be the result
+                            self.input_buffer = res;
+                        }
                     }
                     self.input_buffer_changed = true;
                 }
