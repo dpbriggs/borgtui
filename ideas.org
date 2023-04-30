@@ -27,8 +27,10 @@ CLOSED: [2023-04-22 Sat 21:14]
 Thanks Matti for the quote idea!
 ** TODO Have the ability to list archives per-repo
 ** TODO Watch the profile config file and update it when it's edited externally
-** TODO Add mounting support
-** TODO Add a special wrapper type for the passphrase
+** DONE Add mounting support
+CLOSED: [2023-04-30 Sun 15:56]
+** DONE Add a special wrapper type for the passphrase
+CLOSED: [2023-04-30 Sun 16:04]
 ** TODO Have a cli command to create a new profile
 ** TODO Automatically canonicalize paths in the backup directory chooser
 ** DONE Add exclude patterns

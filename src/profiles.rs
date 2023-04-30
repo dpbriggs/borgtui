@@ -12,11 +12,38 @@ use keyring::Entry;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
+#[derive(Serialize, Deserialize, Clone)]
+pub(crate) struct Passphrase(String);
+
+impl Passphrase {
+    pub(crate) fn inner(&self) -> String {
+        self.0.clone()
+    }
+}
+
+impl std::fmt::Debug for Passphrase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Passphrase<redacted>")
+    }
+}
+
+impl AsRef<str> for Passphrase {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl From<String> for Passphrase {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
 // TODO: This debug impl is a security concern.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) enum Encryption {
     None,
-    Raw(String),
+    Raw(Passphrase),
     Keyring,
 }
 
@@ -59,11 +86,11 @@ impl Repository {
     pub(crate) fn get_passphrase(&self) -> BorgResult<Option<String>> {
         match &self.encryption {
             Encryption::None => Ok(None),
-            Encryption::Raw(passphrase) => Ok(Some(passphrase.clone())),
+            Encryption::Raw(passphrase) => Ok(Some(passphrase.inner())),
             Encryption::Keyring => get_keyring_entry(&self.path)?
                 .get_password()
                 .map_err(|e| anyhow::anyhow!("Failed to get passphrase from keyring: {}", e))
-                .map(Some),
+                .map(|item| Some(item.into())),
         }
     }
 
@@ -296,7 +323,7 @@ impl Profile {
             Some(borg_passphrase) => {
                 // TODO: Refactor this into a separate function
                 if store_passphase_in_cleartext {
-                    Encryption::Raw(borg_passphrase)
+                    Encryption::Raw(Passphrase(borg_passphrase))
                 } else {
                     let entry = get_keyring_entry(&path)?;
                     entry.set_password(&borg_passphrase).with_context(|| {
