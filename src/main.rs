@@ -6,6 +6,7 @@ use std::thread::JoinHandle;
 use anyhow::{anyhow, bail, Context};
 use borgbackup::asynchronous::CreateProgress;
 use chrono::Duration;
+use notify::Watcher;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
@@ -191,10 +192,54 @@ async fn handle_tui_command(
     }
 }
 
-async fn setup_tui(profile: Option<String>) -> BorgResult<JoinHandle<()>> {
+fn watch_profile_for_changes(
+    profile_path: PathBuf,
+    response_send: mpsc::Sender<CommandResponse>,
+) -> BorgResult<()> {
+    let profile_path_clone = profile_path.clone();
+    let mut watcher =
+        notify::recommended_watcher(move |res: Result<notify::Event, _>| match res {
+            Ok(event) => {
+                let is_modify = event.kind.is_modify();
+                tracing::debug!("is_modify: {}", is_modify);
+                if is_modify {
+                    match Profile::blocking_open_path(profile_path_clone.clone()) {
+                        Ok(profile) => {
+                            if let Err(e) = response_send
+                                .blocking_send(CommandResponse::ProfileUpdated(profile))
+                            {
+                                error!("Failed to send update profile message: {}", e)
+                            }
+                        }
+                        Err(e) => error!("Failed to read profile after modify update: {}", e),
+                    }
+                }
+            }
+            Err(e) => error!(
+                "Error while watching path <{}>: {}",
+                profile_path_clone.to_string_lossy(),
+                e
+            ),
+        })?;
+
+    std::thread::spawn(move || loop {
+        if let Err(e) = watcher.watch(&profile_path, notify::RecursiveMode::NonRecursive) {
+            error!("Failed to watcher.watch: {}", e)
+        }
+    });
+
+    Ok(())
+}
+
+async fn setup_tui(profile: Option<String>, watch_profile: bool) -> BorgResult<JoinHandle<()>> {
     let profile = Profile::try_open_profile_or_create_default(&profile).await?;
     let (command_send, mut command_recv) = mpsc::channel::<Command>(QUEUE_SIZE);
     let (response_send, response_recv) = mpsc::channel::<CommandResponse>(QUEUE_SIZE);
+
+    // Profile watcher (sends updates when the config file is manually edited)
+    if watch_profile {
+        watch_profile_for_changes(profile.profile_path()?, response_send.clone())?;
+    }
 
     // Directory Finder
     let mut dir_finder = DirectoryFinder::new();
@@ -203,6 +248,7 @@ async fn setup_tui(profile: Option<String>) -> BorgResult<JoinHandle<()>> {
     }
     let dir_finder = Arc::new(Mutex::new(dir_finder));
     let res = std::thread::spawn(move || {
+        // TODO: Run watcher task here
         let mut tui = BorgTui::new(profile, command_send, response_recv);
         if let Err(e) = tui.run() {
             error!("Failed to run tui: {}", e);
@@ -434,7 +480,7 @@ fn main() -> BorgResult<()> {
                 }
                 // TODO: Is failing to join here a bad idea?
                 None => {
-                    match setup_tui(args.borgtui_profile).await {
+                    match setup_tui(args.borgtui_profile, args.watch_profile).await {
                         Ok(join_handle) => tui_join_handle = Some(join_handle),
                         Err(e) => error!("Failed to setup tui: {}", e),
                     }

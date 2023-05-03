@@ -90,7 +90,7 @@ impl Repository {
             Encryption::Keyring => get_keyring_entry(&self.path)?
                 .get_password()
                 .map_err(|e| anyhow::anyhow!("Failed to get passphrase from keyring: {}", e))
-                .map(|item| Some(item.into())),
+                .map(Some),
         }
     }
 
@@ -203,6 +203,18 @@ impl Profile {
         serde_json::from_str(&profile)
             .with_context(|| format!("Failed to deserialize profile {}", name))
             .map(Some)
+    }
+
+    pub(crate) fn blocking_open_path<P: AsRef<Path>>(path: P) -> BorgResult<Self> {
+        let profile = std::fs::read_to_string(path.as_ref()).with_context(|| {
+            format!("Failed to read profile {}", path.as_ref().to_string_lossy())
+        })?;
+        serde_json::from_str(&profile).with_context(|| {
+            format!(
+                "Failed to deserialize profile {}",
+                path.as_ref().to_string_lossy()
+            )
+        })
     }
 
     pub(crate) fn name(&self) -> &str {

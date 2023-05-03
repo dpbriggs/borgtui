@@ -12,6 +12,11 @@ pub(crate) struct Args {
     /// will be used.
     #[arg(env, short = 'p', long = "profile")]
     pub(crate) borgtui_profile: Option<String>,
+
+    /// Watch for changes in the profile and automatically reload on modify.
+    /// This feature is experimental.
+    #[arg(short, long)]
+    pub(crate) watch_profile: bool,
 }
 
 #[derive(Subcommand, Debug, Clone)]
