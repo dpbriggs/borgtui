@@ -3,7 +3,7 @@ use crate::types::{BorgResult, PrettyBytes, RingBuffer};
 use crate::{borg::BorgCreateProgress, profiles::Profile};
 use borgbackup::asynchronous::CreateProgress;
 use borgbackup::output::list::ListRepository;
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyEvent, KeyModifiers};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -17,7 +17,7 @@ use tui::symbols;
 use tui::text::{Span, Spans};
 use tui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, Wrap};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -118,53 +118,76 @@ enum UIState {
     ListAllArchives,
 }
 
-#[derive(Debug, Clone)]
-struct AddFileToProfilePopup {
+#[derive(Debug)]
+struct InputFieldWithSuggestions {
+    suggestions: BTreeSet<String>,
     input_buffer: String,
+    input_buffer_changed: bool,
     is_editing: bool,
     is_done: bool,
-    path_successfully_added: Arc<AtomicBool>,
-    input_buffer_changed: bool,
 }
 
-impl AddFileToProfilePopup {
-    fn new(initial_text: String) -> Self {
-        let input_buffer_changed = !initial_text.is_empty();
-        AddFileToProfilePopup {
-            input_buffer: initial_text,
+impl InputFieldWithSuggestions {
+    fn new(initial_input_text: String) -> Self {
+        InputFieldWithSuggestions {
+            suggestions: BTreeSet::new(),
+            input_buffer_changed: !initial_input_text.is_empty(),
+            input_buffer: initial_input_text,
             is_editing: true,
             is_done: false,
-            path_successfully_added: Arc::new(AtomicBool::new(false)),
-            input_buffer_changed,
         }
     }
 
-    fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
+    // TODO: Be more selective when updating suggestions
+    fn update_suggestions<I: Iterator<Item = String>>(&mut self, suggestions: I) {
+        self.suggestions.extend(suggestions)
+    }
+
+    fn is_done(&self) -> bool {
+        self.is_done
+    }
+
+    fn on_input_buffer_changed<F>(&mut self, input_buffer_change_fn: F) -> BorgResult<()>
+    where
+        F: Fn(&str) -> BorgResult<()>,
+    {
+        if self.input_buffer_changed {
+            self.input_buffer_changed = false;
+            input_buffer_change_fn(self.input_buffer.as_str())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn handle_key<F>(&mut self, key: KeyEvent, completion_fn: F) -> Option<String>
+    where
+        F: Fn(&BTreeSet<String>, &mut String) -> bool,
+    {
         match key.code {
             KeyCode::Backspace => {
-                self.input_buffer.pop();
-                self.input_buffer_changed = true;
-            }
-            KeyCode::Tab => {
-                if let Some(res) = borgtui.directory_suggestions.first() {
-                    let res = res.to_string_lossy().to_string();
-                    if self.input_buffer == res {
-                        // TODO: Handle windows backslash maybe never?
-                        self.input_buffer.push('/');
-                    } else {
-                        // canonicalize path if it already ends with a '/'
-                        // TODO: Add a timeout here
-                        if self.input_buffer.starts_with(&res) && self.input_buffer.ends_with('/') {
-                            if let Ok(res) = std::fs::canonicalize(&self.input_buffer) {
-                                self.input_buffer = res.to_string_lossy().to_string();
-                            }
-                        } else {
-                            // Just set input buffer to be the result
-                            self.input_buffer = res;
+                if key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                {
+                    if let Some(path) = PathBuf::try_from(self.input_buffer.as_str()).ok() {
+                        self.input_buffer = path
+                            .parent()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or_else(String::new);
+                        if !self.input_buffer.ends_with('/') {
+                            self.input_buffer.push('/');
                         }
                     }
-                    self.input_buffer_changed = true;
+                } else {
+                    self.input_buffer.pop();
                 }
+                self.input_buffer_changed = true;
+                None
+            }
+            KeyCode::Tab => {
+                self.input_buffer_changed =
+                    completion_fn(&self.suggestions, &mut self.input_buffer);
+                None
             }
             KeyCode::Char(c) => {
                 if c == 'q' && !self.is_editing {
@@ -173,6 +196,7 @@ impl AddFileToProfilePopup {
                     self.input_buffer.push(c);
                     self.input_buffer_changed = true;
                 }
+                None
             }
             KeyCode::Esc => {
                 if self.is_editing {
@@ -180,40 +204,17 @@ impl AddFileToProfilePopup {
                 } else {
                     self.is_editing = false;
                 }
+                None
             }
             KeyCode::Enter => {
                 // TODO: Basic validation
-                if let Err(e) = borgtui.add_backup_path_to_profile(
-                    self.input_buffer.clone(),
-                    self.path_successfully_added.clone(),
-                ) {
-                    borgtui.add_error(format!("{}", e));
-                }
+                Some(self.input_buffer.clone())
             }
-            _ => {}
+            _ => None,
         }
     }
 
-    fn on_tick(&mut self, command_channel: &Sender<Command>) -> BorgResult<()> {
-        if self.input_buffer_changed {
-            self.input_buffer_changed = false;
-            let command = Command::GetDirectorySuggestionsFor(self.input_buffer.clone());
-            command_channel.blocking_send(command)?;
-        }
-        Ok(())
-    }
-
-    fn is_done(&self) -> bool {
-        // TODO: A fancy animation would be nice
-        self.is_done || self.path_successfully_added.load(Ordering::SeqCst)
-    }
-
-    fn draw<B: Backend>(
-        &self,
-        frame: &mut Frame<B>,
-        area: Rect,
-        directory_suggestions: &[PathBuf],
-    ) {
+    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
         frame.render_widget(tui::widgets::Clear, area);
         let input_box_size = 3;
         let chunks = Layout::default()
@@ -228,9 +229,10 @@ impl AddFileToProfilePopup {
             .split(area);
         let (top_area, input_panel_area) = (chunks[0], chunks[1]);
         // TODO: Make this generic
-        let list_items: Vec<_> = directory_suggestions
-            .iter()
-            .map(|item| ListItem::new(item.to_string_lossy()))
+        let list_items: Vec<_> = self
+            .suggestions
+            .range(self.input_buffer.clone()..)
+            .map(|item| ListItem::new(item.to_string()))
             .collect();
         let content =
             List::new(list_items).block(Block::default().borders(Borders::ALL).title("Content"));
@@ -246,6 +248,80 @@ impl AddFileToProfilePopup {
             .style(input_panel_style)
             .block(Block::default().borders(Borders::ALL).title("Input"));
         frame.render_widget(input_panel, input_panel_area);
+    }
+}
+
+#[derive(Debug)]
+struct AddFileToProfilePopup {
+    path_successfully_added: Arc<AtomicBool>,
+    input: InputFieldWithSuggestions,
+}
+
+impl AddFileToProfilePopup {
+    fn new(initial_text: String) -> Self {
+        AddFileToProfilePopup {
+            path_successfully_added: Arc::new(AtomicBool::new(false)),
+            input: InputFieldWithSuggestions::new(initial_text),
+        }
+    }
+
+    fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
+        let res = self.input.handle_key(key, |suggestions, input_buffer| {
+            let mut input_buffer_changed = false;
+            // TODO: Make this search fuzzier (so lower case characters work)
+            if let Some(res) = suggestions.range(input_buffer.clone()..).next() {
+                if input_buffer == res {
+                    // TODO: Handle windows backslash maybe never?
+                    // TODO: Add a timeout here
+                    // Canonicalize path
+                    if let Ok(res) = std::fs::canonicalize(&input_buffer) {
+                        *input_buffer = res.to_string_lossy().to_string();
+                    }
+                    if !input_buffer.ends_with('/') {
+                        input_buffer.push('/');
+                    }
+                } else {
+                    *input_buffer = res.to_string();
+                }
+                input_buffer_changed = true;
+            }
+            input_buffer_changed
+        });
+        if let Some(value) = res {
+            // TODO: Basic validation
+            if let Err(e) =
+                borgtui.add_backup_path_to_profile(value, self.path_successfully_added.clone())
+            {
+                borgtui.add_error(format!("{}", e));
+            }
+        }
+    }
+
+    fn on_tick(
+        &mut self,
+        command_channel: &Sender<Command>,
+        directory_suggestions: &[PathBuf],
+    ) -> BorgResult<()> {
+        self.input.update_suggestions(
+            directory_suggestions
+                .iter()
+                .map(|path| path.to_string_lossy().to_string()),
+        );
+        self.input.on_input_buffer_changed(|input_buffer| {
+            let command = Command::GetDirectorySuggestionsFor(input_buffer.to_string());
+            command_channel.blocking_send(command)?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    fn is_done(&self) -> bool {
+        // TODO: A fancy animation would be nice
+        self.input.is_done() || self.path_successfully_added.load(Ordering::SeqCst)
+    }
+
+    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        self.input.draw(frame, area)
     }
 }
 
@@ -287,7 +363,7 @@ impl ErrorPopup {
 }
 
 // TODO: Use enum dispatch or related!
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum Popup {
     AddFileToProfile(AddFileToProfilePopup),
     Error(ErrorPopup),
@@ -300,20 +376,19 @@ impl Popup {
             Popup::Error(e) => e.handle_key(key),
         }
     }
-    fn on_tick(&mut self, command_channel: &Sender<Command>) -> BorgResult<()> {
+    fn on_tick(
+        &mut self,
+        command_channel: &Sender<Command>,
+        directory_suggestions: &[PathBuf],
+    ) -> BorgResult<()> {
         match self {
-            Popup::AddFileToProfile(p) => p.on_tick(command_channel),
+            Popup::AddFileToProfile(p) => p.on_tick(command_channel, directory_suggestions),
             Popup::Error(p) => p.on_tick(),
         }
     }
-    fn draw<B: Backend>(
-        &self,
-        frame: &mut Frame<B>,
-        area: Rect,
-        directory_suggestions: &[PathBuf],
-    ) {
+    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
         match self {
-            Popup::AddFileToProfile(p) => p.draw(frame, area, directory_suggestions),
+            Popup::AddFileToProfile(p) => p.draw(frame, area),
             Popup::Error(p) => p.draw(frame, area),
         }
     }
@@ -748,9 +823,9 @@ impl BorgTui {
             }
         }
         // TODO: Above or below?
-        self.popup_stack
-            .iter_mut()
-            .try_for_each(|popup| popup.on_tick(&self.command_channel))?;
+        self.popup_stack.iter_mut().try_for_each(|popup| {
+            popup.on_tick(&self.command_channel, &self.directory_suggestions)
+        })?;
         Ok(())
     }
 
@@ -1169,7 +1244,7 @@ impl BorgTui {
                     .as_ref(),
                 )
                 .split(top_left)[1];
-            popup.draw(frame, corner, &self.directory_suggestions);
+            popup.draw(frame, corner);
         }
     }
 }
