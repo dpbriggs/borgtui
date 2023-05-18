@@ -2,8 +2,15 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+const ABOUT: &'static str = "Like borgomatic, but with a TUI to help automate borg backups :^)";
+
 #[derive(Parser, Debug, Clone)]
-#[command(author, version, about, long_about = None)]
+#[command(
+    author = "David Briggs <david@dpbriggs.ca>",
+    version,
+    about = ABOUT,
+    long_about = ABOUT
+)]
 pub(crate) struct Args {
     #[command(subcommand)]
     pub(crate) action: Option<Action>,
