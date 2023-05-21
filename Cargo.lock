@@ -282,13 +282,14 @@ dependencies = [
 
 [[package]]
 name = "borgtui"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "atty",
  "borgbackup",
  "chrono",
  "clap",
+ "clap_complete",
  "crossterm 0.26.1",
  "dirs 5.0.0",
  "glob",
@@ -391,6 +392,15 @@ dependencies = [
  "bitflags",
  "clap_lex",
  "strsim",
+]
+
+[[package]]
+name = "clap_complete"
+version = "4.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a04ddfaacc3bc9e6ea67d024575fafc2a813027cf374b8f24f7bc233c6b6be12"
+dependencies = [
+ "clap",
 ]
 
 [[package]]

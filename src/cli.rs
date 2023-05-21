@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, shells};
 
 const ABOUT: &str = "Like borgomatic, but with a TUI to help automate borg backups :^)";
 
@@ -120,6 +121,33 @@ pub(crate) enum Action {
         #[arg(long)]
         install_path: Option<PathBuf>,
     },
+    ShellCompletion {
+        /// Type of shell to print completions for the specified shell. Defaults to zsh.
+        ///
+        /// Allowed options: "zsh", "bash", "fish", "elvish", "powershell"
+        #[arg(long, default_value = "zsh")]
+        shell: String,
+    },
+}
+
+pub(crate) fn print_shell_completion(shell_kind: &str) {
+    let shell = match shell_kind {
+        "zsh" => shells::Shell::Zsh,
+        "bash" => shells::Shell::Bash,
+        "fish" => shells::Shell::Fish,
+        "elvish" => shells::Shell::Elvish,
+        "powershell" => shells::Shell::PowerShell,
+        _ => {
+            tracing::warn!("Unknown shell kind {}, assuming zsh", shell_kind);
+            shells::Shell::Zsh
+        }
+    };
+    generate(
+        shell,
+        &mut Args::command(),
+        "borgtui",
+        &mut std::io::stdout(),
+    );
 }
 
 pub(crate) fn get_args() -> Args {

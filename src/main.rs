@@ -494,6 +494,10 @@ async fn handle_action(
             }
             Ok(())
         }
+        Action::ShellCompletion { shell } => {
+            cli::print_shell_completion(&shell);
+            Ok(())
+        }
     }
 }
 
