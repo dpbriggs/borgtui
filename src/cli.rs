@@ -98,6 +98,28 @@ pub(crate) enum Action {
     List,
     Compact,
     Prune,
+    /// Create a systemd unit to create a backup
+    ///
+    /// If `--install` is specified it will install the unit as a user unit under
+    /// ~/.config/systemd/user. To use this unit you will need to reload user
+    /// units and start the unit.
+    ///
+    ///     $ systemctl --user daemon-reload
+    ///
+    ///     $ systemctl --user start borgtui-create-{profile_name}.service
+    ///
+    /// The default profile is aptly named "default" so the command used is:
+    ///
+    ///     $ systemctl --user start borgtui-create-default.service
+    SystemdCreateUnit {
+        /// If true, save the unit under ~/.config/systemd/user/
+        #[arg(long)]
+        install: bool,
+        /// If set, save the save the unit to the path specified. This option implies
+        /// --install
+        #[arg(long)]
+        install_path: Option<PathBuf>,
+    },
 }
 
 pub(crate) fn get_args() -> Args {

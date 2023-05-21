@@ -7,6 +7,7 @@ use anyhow::{anyhow, bail, Context};
 use borgbackup::asynchronous::CreateProgress;
 use chrono::Duration;
 use notify::Watcher;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
@@ -304,9 +305,25 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
     }
 }
 
+fn generate_system_create_unit(profile_name: &str) -> String {
+    format!(
+        "[Unit]
+Description=BorgTui Create Backup for Profile `{profile_name}`
+
+[Service]
+Type=simple
+ExecStart=borgtui -p {profile_name} create
+
+[Install]
+WantedBy=default.target
+",
+        profile_name = profile_name,
+    )
+}
+
 async fn handle_action(
     action: Action,
-    profile: Option<String>,
+    profile_name: Option<String>,
     command_response_send: mpsc::Sender<CommandResponse>,
 ) -> BorgResult<()> {
     match action {
@@ -317,7 +334,7 @@ async fn handle_action(
             do_not_store_in_keyring,
         } => {
             let _ = do_not_store_in_keyring;
-            let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             borg::init(borg_passphrase.clone(), location.clone(), rsh.clone()).await?;
             profile.add_repository(location.clone(), Some(borg_passphrase), rsh, false)?;
             profile.save_profile().await?;
@@ -325,7 +342,7 @@ async fn handle_action(
             Ok(())
         }
         Action::Create => {
-            let profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             info!("Creating backup for profile {}", profile);
             let handle =
                 borg::create_backup_with_notification(&profile, command_response_send).await?;
@@ -333,14 +350,14 @@ async fn handle_action(
             Ok(())
         }
         Action::Add { directory } => {
-            let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             profile.add_backup_path(directory.clone()).await?;
             profile.save_profile().await?;
             info!("Added {} to profile {}", directory.display(), profile);
             Ok(())
         }
         Action::Remove { directory } => {
-            let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             profile.remove_backup_path(&directory);
             profile.save_profile().await?;
             info!("Removed {} from profile {}", directory.display(), profile);
@@ -354,7 +371,7 @@ async fn handle_action(
             store_passphase_in_cleartext,
         } => {
             // TODO: Check if repo is valid
-            let mut profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             if profile.has_repository(&repository) {
                 bail!(
                     "Repository {} already exists in profile {}",
@@ -383,7 +400,7 @@ async fn handle_action(
             Ok(())
         }
         Action::List => {
-            let profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             let timeout_duration_secs = profile.action_timeout_seconds() as i64;
             for repo in profile.repositories() {
                 let list_archives_per_repo = match tokio::time::timeout(
@@ -409,7 +426,7 @@ async fn handle_action(
             Ok(())
         }
         Action::Compact => {
-            let profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             for repo in profile.repositories() {
                 borg::compact(repo).await?;
                 info!("Finished compacting {}", repo);
@@ -417,7 +434,7 @@ async fn handle_action(
             Ok(())
         }
         Action::Prune => {
-            let profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             for repo in profile.repositories() {
                 borg::prune(repo, profile.prune_options()).await?;
                 info!("Finished pruning {}", repo);
@@ -428,7 +445,7 @@ async fn handle_action(
             repository_path,
             mountpoint,
         } => {
-            let profile = Profile::try_open_profile_or_create_default(&profile).await?;
+            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             let repo_name = match repository_path.find("::") {
                 Some(loc) => repository_path[..loc].to_string(),
                 None => repository_path.to_string(),
@@ -445,6 +462,36 @@ async fn handle_action(
         Action::Umount { mountpoint } => {
             borg::umount(mountpoint.clone()).await?;
             info!("Successfully unmounted {}", mountpoint.to_string_lossy());
+            Ok(())
+        }
+        Action::SystemdCreateUnit {
+            install,
+            install_path,
+        } => {
+            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let systemd_unit_contents = generate_system_create_unit(profile.name());
+            if install || install_path.is_some() {
+                let install_path = install_path.unwrap_or_else(|| {
+                    PathBuf::from(format!(
+                        "~/.config/systemd/user/borgtui-create-{}.service",
+                        profile.name()
+                    ))
+                });
+                if let Some(parent_path) = install_path.parent() {
+                    tokio::fs::create_dir_all(parent_path).await?;
+                }
+                tokio::fs::File::create(&install_path)
+                    .await?
+                    .write_all(systemd_unit_contents.as_bytes())
+                    .await?;
+                info!(
+                    "Installed systemd create unit for {} at {}",
+                    profile,
+                    install_path.to_string_lossy()
+                );
+            } else {
+                println!("{}", systemd_unit_contents)
+            }
             Ok(())
         }
     }

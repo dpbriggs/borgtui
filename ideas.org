@@ -37,6 +37,8 @@ CLOSED: [2023-04-30 Sun 16:11]
 CLOSED: [2023-05-05 Fri 10:00]
 ** DONE Refactor the input popup modal to be generic
 CLOSED: [2023-05-12 Fri 20:47]
+** DONE Have a command to create a systemd unit
+CLOSED: [2023-05-21 Sun 13:46]
 ** TODO Have the ability to list archives per-repo
 ** TODO Have a cli command to create a new profile
 ** TODO Add borg check support
