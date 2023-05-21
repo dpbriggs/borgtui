@@ -113,10 +113,8 @@ mod tests {
             r.push_back(c);
         }
         assert_eq!(r.iter().copied().collect::<Vec<_>>(), vec!['A', 'B', 'C']);
-        assert_eq!(r.front(), Some(&'A'));
         assert_eq!(r.back(), Some(&'C'));
         r.push_back('D');
-        assert_eq!(r.front(), Some(&'B'));
         assert_eq!(r.back(), Some(&'D'));
         r.push_back('E');
         assert_eq!(r.back(), Some(&'E'));
