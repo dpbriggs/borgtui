@@ -1,7 +1,12 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use async_recursion::async_recursion;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, shells};
+use clap_mangen;
+use tokio::io::AsyncWriteExt;
+
+use crate::types::BorgResult;
 
 const ABOUT: &str = "Like borgomatic, but with a TUI to help automate borg backups :^)";
 
@@ -50,17 +55,19 @@ pub(crate) enum Action {
     },
     /// Create a new backup
     Create,
-    /// Add a directory or file to backup
+    /// Add a directory to the profile to backup
     Add {
         /// The directory or file path to add to backup
         directory: PathBuf,
     },
-    /// Add a directory or file to backup
+    /// Remove a directory from a profile (will no longer be backed up)
     Remove {
         /// The directory or file path to add to backup
         directory: PathBuf,
     },
-    /// Add a directory or file to backup
+    /// Add an existing repository to the profile.
+    ///
+    /// It's recommended to set BORG_PASSPHRASE in your environment and export it.
     AddRepo {
         /// The directory or file path to add to backup
         repository: String,
@@ -85,19 +92,23 @@ pub(crate) enum Action {
         #[arg(short, long, default_value = "false")]
         store_passphase_in_cleartext: bool,
     },
+    /// Mount a mounted Borg repo or archive as a FUSE filesystem.
     Mount {
         /// The directory or file path to add to backup
         repository_path: String,
         /// The mount point
         mountpoint: PathBuf,
     },
+    /// Unmount a mounted Borg repo or archive
     Umount {
         /// The mount point
         mountpoint: PathBuf,
     },
     /// List the archives in a directory
     List,
+    /// Compact a borg repo
     Compact,
+    /// Prune a borg repo
     Prune,
     /// Create a systemd unit to create a backup
     ///
@@ -121,6 +132,7 @@ pub(crate) enum Action {
         #[arg(long)]
         install_path: Option<PathBuf>,
     },
+    /// Generate shell completion scripts (printed to stdout)
     ShellCompletion {
         /// Type of shell to print completions for the specified shell. Defaults to zsh.
         ///
@@ -128,6 +140,36 @@ pub(crate) enum Action {
         #[arg(long, default_value = "zsh")]
         shell: String,
     },
+    /// Generate man pages for borgtui
+    ManPage {
+        /// Path where man pages will be written. Several files will be written
+        /// as borgtui uses subcommands.
+        man_root: PathBuf,
+    },
+}
+
+pub(crate) async fn print_manpage(man_root: PathBuf) -> BorgResult<()> {
+    // Adapted from https://github.com/clap-rs/clap/discussions/3603#discussioncomment-3641542
+    #[async_recursion]
+    async fn write_man_page(dir: &Path, app: &clap::Command) -> BorgResult<()> {
+        // `get_display_name()` is `Some` for all instances, except the root.
+        let name = app.get_display_name().unwrap_or_else(|| app.get_name());
+        let mut out = tokio::fs::File::create(dir.join(format!("{name}.1"))).await?;
+
+        let mut buf = Vec::new();
+        clap_mangen::Man::new(app.clone()).render(&mut buf)?;
+        out.write_all(buf.as_slice()).await?;
+        out.flush().await?;
+
+        for sub in app.get_subcommands() {
+            write_man_page(dir, sub).await?;
+        }
+        Ok(())
+    }
+    let mut command = Args::command();
+    command.build();
+    write_man_page(man_root.as_path(), &command).await?;
+    Ok(())
 }
 
 pub(crate) fn print_shell_completion(shell_kind: &str) {

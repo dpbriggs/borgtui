@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.70"
+async-recursion = "1.0.4"
 atty = "0.2.14"
 # borgbackup = { version = "0.6.2", features = ["tokio"] }
 # borgbackup = { path = "/hdd2/programming/borgbackup-fork", features = ["tokio"] }
@@ -14,6 +15,7 @@ borgbackup = { git = "https://github.com/dpbriggs/borgbackup-fork.git", rev = "0
 chrono = "0.4.24"
 clap = { version = "4.2.0", features = ["derive", "env"] }
 clap_complete = "4.3.0"
+clap_mangen = "0.2.11"
 crossterm = "0.26.1"
 dirs = "5.0.0"
 glob = "0.3.1"

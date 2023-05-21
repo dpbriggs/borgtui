@@ -498,6 +498,7 @@ async fn handle_action(
             cli::print_shell_completion(&shell);
             Ok(())
         }
+        Action::ManPage { man_root } => cli::print_manpage(man_root).await,
     }
 }
 
