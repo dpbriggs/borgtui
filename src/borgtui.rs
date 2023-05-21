@@ -169,7 +169,7 @@ impl InputFieldWithSuggestions {
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
                 {
-                    if let Some(path) = PathBuf::try_from(self.input_buffer.as_str()).ok() {
+                    if let Ok(path) = PathBuf::try_from(self.input_buffer.as_str()) {
                         self.input_buffer = path
                             .parent()
                             .map(|p| p.to_string_lossy().to_string())
