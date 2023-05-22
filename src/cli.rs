@@ -157,7 +157,9 @@ pub(crate) async fn print_manpage(man_root: PathBuf) -> BorgResult<()> {
         let mut out = tokio::fs::File::create(dir.join(format!("{name}.1"))).await?;
 
         let mut buf = Vec::new();
-        clap_mangen::Man::new(app.clone()).render(&mut buf)?;
+        clap_mangen::Man::new(app.clone())
+            .title(name)
+            .render(&mut buf)?;
         out.write_all(buf.as_slice()).await?;
         out.flush().await?;
 
