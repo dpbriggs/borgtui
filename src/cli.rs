@@ -40,10 +40,6 @@ pub(crate) enum Action {
         #[arg(env, short = 'e', long)]
         borg_passphrase: String,
 
-        /// The repo location
-        #[arg(short, long)]
-        location: String,
-
         /// Do not store the passphrase in the keyring
         #[arg(short, long)]
         do_not_store_in_keyring: bool,
@@ -51,6 +47,13 @@ pub(crate) enum Action {
         /// SSH command to use when connecting to the repo
         #[arg(short, long)]
         rsh: Option<String>,
+
+        /// The repo location. It should be a file path or ssh string.
+        ///
+        /// Examples:
+        /// - /hdd3/NewBackup
+        /// - /hdd2/NewBackup
+        location: String,
     },
     /// Create a new backup
     Create,

@@ -486,13 +486,16 @@ async fn handle_action(
             let systemd_unit_contents = generate_system_create_unit(profile.name(), timer);
             let extension = if timer { "timer" } else { "service" };
             if install || install_path.is_some() {
+                let home_dir = dirs::home_dir()
+                    .ok_or_else(|| anyhow!("Couldn't find a home directory. Is $HOME set?"))?;
                 let install_path = install_path.unwrap_or_else(|| {
-                    PathBuf::from(format!(
-                        "~/.config/systemd/user/borgtui-create-{}.{}",
+                    home_dir.join(format!(
+                        ".config/systemd/user/borgtui-create-{}.{}",
                         profile.name(),
                         extension
                     ))
                 });
+                info!("{:?}", install_path);
                 if let Some(parent_path) = install_path.parent() {
                     tokio::fs::create_dir_all(parent_path).await?;
                 }
