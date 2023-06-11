@@ -176,7 +176,7 @@ pub(crate) async fn print_manpage(man_root: PathBuf) -> BorgResult<()> {
     Ok(())
 }
 
-pub(crate) fn print_shell_completion(shell_kind: &str) {
+pub(crate) fn print_shell_completion(shell_kind: &str) -> BorgResult<()> {
     let shell = match shell_kind {
         "zsh" => shells::Shell::Zsh,
         "bash" => shells::Shell::Bash,
@@ -184,8 +184,7 @@ pub(crate) fn print_shell_completion(shell_kind: &str) {
         "elvish" => shells::Shell::Elvish,
         "powershell" => shells::Shell::PowerShell,
         _ => {
-            tracing::warn!("Unknown shell kind {}, assuming zsh", shell_kind);
-            shells::Shell::Zsh
+            anyhow::bail!("Unknown shell kind {}, assuming zsh", shell_kind);
         }
     };
     generate(
@@ -194,6 +193,7 @@ pub(crate) fn print_shell_completion(shell_kind: &str) {
         "borgtui",
         &mut std::io::stdout(),
     );
+    Ok(())
 }
 
 pub(crate) fn get_args() -> Args {

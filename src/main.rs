@@ -513,7 +513,7 @@ async fn handle_action(
             Ok(())
         }
         Action::ShellCompletion { shell } => {
-            cli::print_shell_completion(&shell);
+            cli::print_shell_completion(&shell)?;
             Ok(())
         }
         Action::ManPage { man_root } => cli::print_manpage(man_root).await,
