@@ -305,9 +305,21 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
     }
 }
 
-fn generate_system_create_unit(profile_name: &str) -> String {
-    format!(
+fn generate_system_create_unit(profile_name: &str, timer: bool) -> String {
+    if timer {
         "[Unit]
+Description=Run borgtui create every day at 9PM
+
+[Timer]
+OnCalendar=*-*-* 21:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target"
+            .to_string()
+    } else {
+        format!(
+            "[Unit]
 Description=BorgTui Create Backup for Profile `{profile_name}`
 
 [Service]
@@ -317,8 +329,9 @@ ExecStart=borgtui -p {profile_name} create
 [Install]
 WantedBy=default.target
 ",
-        profile_name = profile_name,
-    )
+            profile_name = profile_name,
+        )
+    }
 }
 
 async fn handle_action(
@@ -467,14 +480,17 @@ async fn handle_action(
         Action::SystemdCreateUnit {
             install,
             install_path,
+            timer,
         } => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
-            let systemd_unit_contents = generate_system_create_unit(profile.name());
+            let systemd_unit_contents = generate_system_create_unit(profile.name(), timer);
+            let extension = if timer { "timer" } else { "service" };
             if install || install_path.is_some() {
                 let install_path = install_path.unwrap_or_else(|| {
                     PathBuf::from(format!(
-                        "~/.config/systemd/user/borgtui-create-{}.service",
-                        profile.name()
+                        "~/.config/systemd/user/borgtui-create-{}.{}",
+                        profile.name(),
+                        extension
                     ))
                 });
                 if let Some(parent_path) = install_path.parent() {
@@ -484,8 +500,10 @@ async fn handle_action(
                     .await?
                     .write_all(systemd_unit_contents.as_bytes())
                     .await?;
+                let unit_type = if timer { "timer unit" } else { "create unit" };
                 info!(
-                    "Installed systemd create unit for {} at {}",
+                    "Installed systemd {} for {} at {}",
+                    unit_type,
                     profile,
                     install_path.to_string_lossy()
                 );

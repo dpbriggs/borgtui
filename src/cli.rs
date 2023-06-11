@@ -131,6 +131,8 @@ pub(crate) enum Action {
         /// --install
         #[arg(long)]
         install_path: Option<PathBuf>,
+        #[arg(long)]
+        timer: bool,
     },
     /// Generate shell completion scripts (printed to stdout)
     ShellCompletion {
