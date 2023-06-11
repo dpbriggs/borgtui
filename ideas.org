@@ -44,3 +44,4 @@ CLOSED: [2023-06-11 Sun 12:10]
 ** TODO Have the ability to list archives per-repo
 ** TODO Have a cli command to create a new profile
 ** TODO Add borg check support
+** TODO Update the README to document the project
