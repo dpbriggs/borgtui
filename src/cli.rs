@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use async_recursion::async_recursion;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, shells};
-use clap_mangen;
 use tokio::io::AsyncWriteExt;
 
 use crate::types::BorgResult;
