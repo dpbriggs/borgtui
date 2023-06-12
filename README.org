@@ -6,7 +6,7 @@ A simple TUI and CLI to automate your Borg backups :^)
 
 ** Features
 
-- *Simple*: Manage your backup sources, backups, and repositories from a TUI or CLI.
+- *Simple*: Manage your backup sources, backups, and repositories from either the TUI or CLI.
 - *Ergonomic*: Find, add, and canonicalize backup paths [[https://user-images.githubusercontent.com/5560032/244952253-57126b10-d749-4337-9eb4-d6633ee8e0a5.png][from the TUI]].
 - *Concurrent*: All operations occur in parallel for each repository.
 - *Easy*: Just Works™ -- will backup every source directory to every remote repository.
@@ -22,7 +22,7 @@ BorgTUI is available on the AUR as [[https://aur.archlinux.org/packages/borgtui-
 
 *** Manual
 
-You can manually install BorgTUI by manually building and install it:
+You can manually install BorgTUI with [[https://doc.rust-lang.org/cargo/getting-started/installation.html][cargo]]:
 
 #+begin_src bash
 cargo install --git https://github.com/dpbriggs/borgtui.git
@@ -52,7 +52,7 @@ On most systems you can use =manpath= to find where to install those man-pages.
 
 BorgTUI supports having several profiles which each contain their own backup sources and borg repositories.
 The default profile is called "default" and lives under =~/.config/borgtui/profiles/default.json= on Linux.
-You can set =BORGTUI_PROFILE= in your environment or use =borgtui -p <profile_name> <command>= to select the profile.
+You can set =BORGTUI_PROFILE= in your environment or use =borgtui -p <profile_name> ...= to select the profile.
 
 The default screen in BorgTUI is the profile view where you can see your backup paths and repositories:
 
@@ -66,16 +66,21 @@ The easiest way is to set =BORG_PASSPHRASE= and you can set this using =read= an
 
 #+begin_src bash
 read -s BORG_PASSPHRASE
+#+end_src
+
+You'll need to export that variable for BorgTUI to pick it up:
+
+#+begin_src bash
 export BORG_PASSPHRASE
 #+end_src
 
-If you want to add an existing repository, use =borgtui add-repo=:
+If you want to *add an existing* repository, use =borgtui add-repo=:
 
 #+begin_src bash
 borgtui add-repo ssh://abcdefg@abc123.repo.borgbase.com/./repo
 #+end_src
 
-If you want to create a new repository, use =borgtui init=:
+If you want to *create* a new repository, use =borgtui init=:
 
 #+begin_src bash
 borgtui init ssh://david@home-nas/hdd1/borg
@@ -83,15 +88,13 @@ borgtui init ssh://david@home-nas/hdd1/borg
 
 *** Adding Sources
 
-You can add new backup sources by using the directory chooser in =borgtui= by hitting "a"
-
-#+begin_src bash
-borgtui
-#+end_src
-
+You can add new backup sources by using the directory chooser in =borgtui=.
 Press "a" to open the directory chooser. Autocomplete and canonicalize paths with "TAB".
 
 [[https://user-images.githubusercontent.com/5560032/244952253-57126b10-d749-4337-9eb4-d6633ee8e0a5.png][https://user-images.githubusercontent.com/5560032/244952253-57126b10-d749-4337-9eb4-d6633ee8e0a5.png]]
+
+You can also edit the profile json file under =~/.config/borgtui/profiles/= to manually add paths.
+Make sure to run that path through =realpath= first!
 
 *** Creating a Backup
 
