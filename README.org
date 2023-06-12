@@ -8,11 +8,11 @@ A simple TUI and CLI to automate your Borg backups :^)
 
 - *Simple*: Manage your backup sources, backups, and repositories from either the TUI or CLI.
 - *Ergonomic*: Find, add, and canonicalize backup paths [[https://user-images.githubusercontent.com/5560032/244952253-57126b10-d749-4337-9eb4-d6633ee8e0a5.png][from the TUI]].
-- *Concurrent*: All operations occur in parallel for each repository.
-- *Easy*: Just Works™ -- will backup every source directory to every remote repository.
+- *Concurrent*: All operations occur concurrently and in parallel for each repository.
+- *Easy*: Just Works™. BorgTUI will backup every source directory to every remote repository.
 - *Friendly*: Shell completions, desktop notifications, systemd unit generation.
 - *Automation*: Designed to perform regular and scheduled backups.
-- *Documentation*: Man pages and helpful error messages.
+- *Documentation*: Has man pages and helpful error messages.
 
 ** Installation
 
@@ -93,7 +93,13 @@ Press "a" to open the directory chooser. Autocomplete and canonicalize paths wit
 
 [[https://user-images.githubusercontent.com/5560032/244952253-57126b10-d749-4337-9eb4-d6633ee8e0a5.png][https://user-images.githubusercontent.com/5560032/244952253-57126b10-d749-4337-9eb4-d6633ee8e0a5.png]]
 
-You can also edit the profile json file under =~/.config/borgtui/profiles/= to manually add paths.
+You can also use =borgtui add= on the command-line:
+
+#+begin_src bash
+borgtui add <backup_path>
+#+end_src
+
+You can manually add paths by editing the profile json file under =~/.config/borgtui/profiles/=.
 Make sure to run that path through =realpath= first!
 
 *** Creating a Backup
@@ -146,6 +152,28 @@ You can unmount a mounted archive or repository by using =borgtui umount=
 
 #+begin_src bash
 borgtui umount ~/borg-mount
+#+end_src
+
+*** Pruning and Compacting
+
+You can prune by pressing "\" in the TUI or by issuing:
+
+#+begin_src bash
+borgtui prune
+#+end_src
+
+You can compact a repo by pressing "c" in the TUI or by issuing:
+
+#+begin_src bash
+borgtui compact
+#+end_src
+
+*** TODO Checking
+
+Right now BorgTUI doesn't support checking so you can do that manually with =borg=. Just set =BORG_PASSPHRASE= in your environment and use
+
+#+begin_src bash
+borg check <path_to_repo>
 #+end_src
 
 ** Automatic Scheduled Backups
