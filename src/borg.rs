@@ -77,6 +77,10 @@ pub(crate) async fn create_backup_with_notification(
                 elapsed_duration.as_secs() / 60 % 60,
                 elapsed_duration.as_secs() % 60
             );
+            info!(
+                "Completed backup for profile {} in {}",
+                profile_name, nicely_formatted
+            );
             log_on_error!(
                 Notification::new()
                     .summary(&format!("Backup complete for {}", profile_name))
