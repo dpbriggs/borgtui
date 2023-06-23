@@ -249,7 +249,6 @@ async fn setup_tui(profile: Option<String>, watch_profile: bool) -> BorgResult<J
     }
     let dir_finder = Arc::new(Mutex::new(dir_finder));
     let res = std::thread::spawn(move || {
-        // TODO: Run watcher task here
         let mut tui = BorgTui::new(profile, command_send, response_recv);
         if let Err(e) = tui.run() {
             error!("Failed to run tui: {}", e);
