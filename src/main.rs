@@ -345,6 +345,7 @@ async fn handle_action(
             rsh,
             do_not_store_in_keyring,
         } => {
+            // TODO: Handle not storing in the keyring
             let _ = do_not_store_in_keyring;
             let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             borg::init(borg_passphrase.clone(), location.clone(), rsh.clone()).await?;
