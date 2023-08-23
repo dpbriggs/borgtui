@@ -279,7 +279,8 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
                     nfiles,
                     path,
                 } => info!(
-                    "{}: {} -> {} -> {} ({} files)",
+                    "[{}] {}: {} -> {} -> {} ({} files)",
+                    msg.repository,
                     path,
                     PrettyBytes(original_size),
                     PrettyBytes(compressed_size),
