@@ -1098,9 +1098,9 @@ impl BorgTui {
                 }
                 None => {
                     let cell = if repo_disabled {
-                        Cell::from("Still fetching...")
-                    } else {
                         Cell::from("Repo disabled, not fetching...")
+                    } else {
+                        Cell::from("Still fetching...")
                     };
                     vec![Row::new([cell, Cell::from("")])]
                 },
