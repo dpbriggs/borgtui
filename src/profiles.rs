@@ -113,6 +113,23 @@ impl Repository {
             ..Default::default()
         }
     }
+
+    pub(crate) fn create_options(
+        &self,
+        archive_name: &str,
+        backup_paths: &[String],
+        excludes: &[String],
+    ) -> BorgResult<CreateOptions> {
+        let mut create_options = CreateOptions::new(
+            self.path.clone(),
+            archive_name.to_string(),
+            backup_paths.to_vec(),
+            vec![],
+        );
+        create_options.passphrase = self.get_passphrase()?;
+        create_options.excludes = excludes.iter().cloned().map(Pattern::Shell).collect();
+        Ok(create_options)
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -280,24 +297,16 @@ impl Profile {
             ));
         }
         let mut create_options_list = Vec::new();
-        for repo in self.repos.clone() {
-            let mut create_options = CreateOptions::new(
-                repo.path.clone(),
-                archive_name.clone(),
-                self.backup_paths
-                    .iter()
-                    .map(|path| format!("'{}'", path.to_string_lossy()))
-                    .collect::<Vec<String>>(),
-                vec![],
-            );
-            create_options.passphrase = repo.get_passphrase()?;
-            create_options.excludes = self
-                .exclude_patterns
-                .iter()
-                .cloned()
-                .map(Pattern::Shell)
-                .collect();
-            create_options_list.push((create_options, repo));
+        let backup_paths = self
+            .backup_paths
+            .iter()
+            .map(|path| format!("'{}'", path.to_string_lossy()))
+            .collect::<Vec<String>>();
+        for repo in self.active_repositories() {
+            match repo.create_options(&archive_name, &backup_paths, self.exclude_patterns()) {
+                Ok(create_option) => create_options_list.push((create_option, repo.clone())),
+                Err(e) => tracing::error!("Failed to make create options for {} in {}: {}", self, repo, e),
+            };
         }
         Ok(create_options_list)
     }

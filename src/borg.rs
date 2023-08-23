@@ -19,7 +19,7 @@ use tokio::{
     sync::{mpsc, Semaphore},
     task::JoinHandle,
 };
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 fn archive_name(name: &str) -> String {
     format!(
@@ -108,10 +108,6 @@ pub(crate) async fn create_backup_internal(
 ) -> BorgResult<()> {
     let archive_name = archive_name(profile.name());
     for (create_option, repo) in profile.borg_create_options(archive_name)? {
-        if repo.disabled() {
-            warn!("Skipping disabled repo: {}", repo);
-            continue;
-        }
         info!(
             "Creating archive {} in repository {}",
             create_option.archive, create_option.repository
