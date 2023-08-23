@@ -58,6 +58,15 @@ The default screen in BorgTUI is the profile view where you can see your backup 
 
 [[https://user-images.githubusercontent.com/5560032/244976922-1fbc3393-a4ba-44be-8b2c-31b3cc02b831.png][https://user-images.githubusercontent.com/5560032/244976922-1fbc3393-a4ba-44be-8b2c-31b3cc02b831.png]]
 
+**** Creating New Profiles
+
+Interacting with BorgTUI will automatically create a profile called "default" unless a different profile is specified.
+You can create a new profile with:
+
+#+begin_src bash
+borgtui add-profile <profile-name>
+#+end_src
+
 *** Initializing or Adding a New Repository
 
 BorgTUI normally retrieves the repository encryption passphrase from your keyring. However, when setting up a new repository

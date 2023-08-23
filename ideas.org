@@ -47,8 +47,9 @@ CLOSED: [2023-08-22 Tue 20:46]
 CLOSED: [2023-08-22 Tue 20:59]
 ** DONE Don't immediately bail when an error occurs in CLI mode for create (run them in parallel?)
 CLOSED: [2023-08-22 Tue 21:22]
+** DONE Have a cli command to create a new profile
+CLOSED: [2023-08-23 Wed 18:42]
 ** TODO Have a cursor in the profiles screen so you can interact and edit them
 ** TODO Have the ability to list archives per-repo
-** TODO Have a cli command to create a new profile
 ** TODO Add borg check support
 ** TODO Update the README to document the project

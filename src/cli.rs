@@ -94,6 +94,8 @@ pub(crate) enum Action {
         #[arg(short, long, default_value = "false")]
         store_passphase_in_cleartext: bool,
     },
+    /// Create a new profile with a given name
+    AddProfile { name: String },
     /// Mount a mounted Borg repo or archive as a FUSE filesystem.
     Mount {
         /// The directory or file path to add to backup

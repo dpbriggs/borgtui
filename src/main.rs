@@ -455,6 +455,19 @@ async fn handle_action(
             }
             Ok(())
         }
+        Action::AddProfile { name } => {
+            let profile = match Profile::open_profile(&name).await {
+                Ok(Some(profile)) => bail!("Error: {} already exists", profile),
+                Ok(None) => Profile::create_profile(&name).await?,
+                Err(e) => bail!(
+                    "[{}] exists but encountered an error while reading: {:#}",
+                    Profile::profile_path_for_name(&name)?.to_string_lossy(),
+                    e
+                ),
+            };
+            info!("Created {}", profile);
+            Ok(())
+        }
         Action::Mount {
             repository_path,
             mountpoint,
@@ -519,9 +532,12 @@ async fn handle_action(
 
         Action::ConfigPath => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
-            println!("{}", Profile::profile_path_for_name(profile.name())?.to_string_lossy());
+            println!(
+                "{}",
+                Profile::profile_path_for_name(profile.name())?.to_string_lossy()
+            );
             Ok(())
-        },
+        }
         Action::ShellCompletion { shell } => {
             cli::print_shell_completion(&shell)?;
             Ok(())

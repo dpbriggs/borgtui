@@ -1076,7 +1076,9 @@ impl BorgTui {
             .direction(Direction::Vertical)
             .constraints(backup_constraints.as_ref())
             .split(area);
-        for ((repo_name, list_archive, repo_disabled), area) in repos_with_archives.into_iter().zip(areas) {
+        for ((repo_name, list_archive, repo_disabled), area) in
+            repos_with_archives.into_iter().zip(areas)
+        {
             let archive_rows = match list_archive {
                 Some(list_archive) => {
                     // TODO: Consider using a table to show the date!
@@ -1103,7 +1105,7 @@ impl BorgTui {
                         Cell::from("Still fetching...")
                     };
                     vec![Row::new([cell, Cell::from("")])]
-                },
+                }
             };
             let archive_table = Table::new(archive_rows)
                 .widths(&[Constraint::Percentage(30), Constraint::Percentage(70)])

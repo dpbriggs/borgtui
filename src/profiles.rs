@@ -210,16 +210,18 @@ impl Profile {
         if let Some(profile) = Self::open_profile(Self::DEFAULT_PROFILE_NAME).await? {
             Ok(profile)
         } else {
-            let profile = Self::blank(Self::DEFAULT_PROFILE_NAME);
-            profile.save_profile().await?;
-            Ok(profile)
+            Self::create_profile(Self::DEFAULT_PROFILE_NAME).await
         }
     }
 
+    pub(crate) async fn create_profile(name: &str) -> BorgResult<Self> {
+        let profile = Self::blank(name);
+        profile.save_profile().await?;
+        Ok(profile)
+    }
+
     pub(crate) async fn open_profile(name: &str) -> BorgResult<Option<Self>> {
-        let blank = Self::blank(name);
-        // TODO: This is a bit of a hack; make this less janky lol
-        let profile_path = blank.profile_path()?;
+        let profile_path = Profile::profile_path_for_name(name)?;
         if !profile_path.exists() {
             return Ok(None);
         }
@@ -305,7 +307,12 @@ impl Profile {
         for repo in self.active_repositories() {
             match repo.create_options(&archive_name, &backup_paths, self.exclude_patterns()) {
                 Ok(create_option) => create_options_list.push((create_option, repo.clone())),
-                Err(e) => tracing::error!("Failed to make create options for {} in {}: {}", self, repo, e),
+                Err(e) => tracing::error!(
+                    "Failed to make create options for {} in {}: {}",
+                    self,
+                    repo,
+                    e
+                ),
             };
         }
         Ok(create_options_list)
