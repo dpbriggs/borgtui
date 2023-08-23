@@ -43,10 +43,11 @@ CLOSED: [2023-05-21 Sun 13:46]
 CLOSED: [2023-06-11 Sun 12:10]
 ** DONE Have the ability to disable repos
 CLOSED: [2023-08-22 Tue 20:46]
+** DONE Add a subcommand to print out the configuration dir used
+CLOSED: [2023-08-22 Tue 20:59]
 ** TODO Have a cursor in the profiles screen so you can interact and edit them
 ** TODO Have the ability to list archives per-repo
 ** TODO Have a cli command to create a new profile
 ** TODO Add borg check support
 ** TODO Update the README to document the project
-** TODO Add a subcommand to print out the configuration dir used
 ** TODO Don't immediately bail when an error occurs in CLI mode for create (run them in parallel?)

@@ -302,14 +302,18 @@ impl Profile {
         Ok(create_options_list)
     }
 
-    pub(crate) fn profile_path(&self) -> BorgResult<PathBuf> {
+    pub(crate) fn profile_path_for_name(name: &str) -> BorgResult<PathBuf> {
         let mut path = dirs::config_dir()
             .ok_or_else(|| anyhow::anyhow!("Failed to get config directory. Is $HOME set?"))?;
         path.push("borgtui");
         path.push("profiles");
-        path.push(&self.name);
+        path.push(name);
         path.set_extension("json");
         Ok(path)
+    }
+
+    pub(crate) fn profile_path(&self) -> BorgResult<PathBuf> {
+        Self::profile_path_for_name(&self.name)
     }
 
     pub(crate) async fn save_profile(&self) -> BorgResult<()> {

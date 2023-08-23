@@ -136,6 +136,10 @@ pub(crate) enum Action {
         #[arg(long)]
         timer: bool,
     },
+    /// Print the configuration file path for the given profile (defaults to "default")
+    ///
+    /// Note that this command will _open_ the profile to see if it exists.
+    ConfigPath,
     /// Generate shell completion scripts (printed to stdout)
     ShellCompletion {
         /// Type of shell to print completions for the specified shell. Defaults to zsh.

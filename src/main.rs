@@ -515,6 +515,12 @@ async fn handle_action(
             }
             Ok(())
         }
+
+        Action::ConfigPath => {
+            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            println!("{}", Profile::profile_path_for_name(profile.name())?.to_string_lossy());
+            Ok(())
+        },
         Action::ShellCompletion { shell } => {
             cli::print_shell_completion(&shell)?;
             Ok(())

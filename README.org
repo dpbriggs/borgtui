@@ -190,6 +190,12 @@ To disable a repository so that BorgTUI won't interact with it set the disabled 
   ]
 #+end_src
 
+To find your profile use the "config-path" subcommand:
+
+#+begin_src bash
+borgtui config-path
+#+end_src
+
 This is useful to prevent unnecessary errors and logs when you're upgrading your NAS or BorgBase decides to have an extended outage :^)
 
 ** Automatic Scheduled Backups
