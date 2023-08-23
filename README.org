@@ -20,7 +20,7 @@ A simple TUI and CLI to automate your Borg backups :^)
 
 BorgTUI is available on the AUR as [[https://aur.archlinux.org/packages/borgtui-git][borgtui-git]].
 
-*** Manual
+*** Manual Installation
 
 You can manually install BorgTUI with [[https://doc.rust-lang.org/cargo/getting-started/installation.html][cargo]]:
 
@@ -175,6 +175,22 @@ Right now BorgTUI doesn't support checking so you can do that manually with =bor
 #+begin_src bash
 borg check <path_to_repo>
 #+end_src
+
+*** Disabling a Repository
+
+To disable a repository so that BorgTUI won't interact with it set the disabled flag in the repository section of the configuration:
+
+#+begin_src json
+  "repos": [
+    {
+      "path": "/path/to/borg/repo",
+      "encryption": "Keyring",
+      "disabled": true
+    },
+  ]
+#+end_src
+
+This is useful to prevent unnecessary errors and logs when you're upgrading your NAS or BorgBase decides to have an extended outage :^)
 
 ** Automatic Scheduled Backups
 

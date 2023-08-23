@@ -646,7 +646,7 @@ impl BorgTui {
     }
 
     fn send_compact_command(&mut self) -> BorgResult<()> {
-        for repo in self.profile.repos() {
+        for repo in self.profile.active_repositories() {
             let command = Command::Compact(repo.clone());
             self.command_channel.blocking_send(command)?;
         }
@@ -654,7 +654,7 @@ impl BorgTui {
     }
 
     fn send_prune_command(&mut self) -> BorgResult<()> {
-        for repo in self.profile.repos() {
+        for repo in self.profile.active_repositories() {
             let command = Command::Prune(repo.clone(), self.profile.prune_options());
             self.command_channel.blocking_send(command)?;
         }
@@ -668,7 +668,7 @@ impl BorgTui {
     }
 
     fn send_list_archives_command(&mut self) -> BorgResult<()> {
-        for repo in self.profile.repos() {
+        for repo in self.profile.active_repositories() {
             let command = Command::ListArchives(repo.clone());
             self.command_channel.blocking_send(command)?;
         }
@@ -859,7 +859,7 @@ impl BorgTui {
     ) -> Option<(f64, f64)> {
         let mut min = f64::INFINITY;
         let mut max = -1.0;
-        for repo in self.profile.repos() {
+        for repo in self.profile.active_repositories() {
             if let Some(ring_buffer) = self.backup_state.backup_stats.get(&repo.path) {
                 ring_buffer.iter().map(metric_fn).for_each(|value| {
                     if value < min {
@@ -883,8 +883,7 @@ impl BorgTui {
         // TODO: How to make original size look good?
         let original_size_metrics: Vec<_> = self
             .profile
-            .repos()
-            .iter()
+            .active_repositories()
             .filter_map(|repo| {
                 self.get_backup_stats_for_repo(&repo.path, &|stat: &BackupStat| {
                     stat.original_size as f64 / BYTES_TO_MEGABYTES_F64
@@ -903,8 +902,7 @@ impl BorgTui {
 
         let compressed_size_metrics: Vec<_> = self
             .profile
-            .repos()
-            .iter()
+            .active_repositories()
             .filter_map(|repo| {
                 self.get_backup_stats_for_repo(&repo.path, &|stat: &BackupStat| {
                     stat.compressed_size as f64 / BYTES_TO_MEGABYTES_F64
@@ -995,7 +993,7 @@ impl BorgTui {
             .constraints(backup_constraints.as_ref())
             .split(area);
         self.profile
-            .repos()
+            .repositories()
             .iter()
             .zip(areas)
             .for_each(|(repo, area)| {
@@ -1022,11 +1020,23 @@ impl BorgTui {
                         )),
                     );
                 }
-                let backup_span = if self.backup_state.is_finished(&repo.path) {
+                if repo.disabled() {
+                    items.insert(0, ListItem::new("# Repo disabled, not backing up..."));
+                }
+                let is_finished = self.backup_state.is_finished(&repo.path);
+                let is_disabled = repo.disabled();
+                let backup_span = if is_finished {
                     Span::styled(
                         format!("FINISHED Backup {}", repo),
                         Style::default()
                             .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else if is_disabled {
+                    Span::styled(
+                        format!("DISABLED Backup {}", repo),
+                        Style::default()
+                            .fg(Color::Gray)
                             .add_modifier(Modifier::BOLD),
                     )
                 } else {
@@ -1047,12 +1057,13 @@ impl BorgTui {
         // (RepoName, Option<ListArchive>)
         let repos_with_archives: Vec<_> = self
             .profile
-            .repos()
+            .repositories()
             .iter()
             .map(|repo| {
                 (
                     repo.path.clone(),
                     self.list_archives_state.get(&repo.path).cloned(),
+                    repo.disabled(),
                 )
             })
             .collect();
@@ -1065,7 +1076,7 @@ impl BorgTui {
             .direction(Direction::Vertical)
             .constraints(backup_constraints.as_ref())
             .split(area);
-        for ((repo_name, list_archive), area) in repos_with_archives.into_iter().zip(areas) {
+        for ((repo_name, list_archive, repo_disabled), area) in repos_with_archives.into_iter().zip(areas) {
             let archive_rows = match list_archive {
                 Some(list_archive) => {
                     // TODO: Consider using a table to show the date!
@@ -1085,7 +1096,14 @@ impl BorgTui {
                         })
                         .collect::<Vec<_>>()
                 }
-                None => vec![Row::new([Cell::from("Still fetching..."), Cell::from("")])],
+                None => {
+                    let cell = if repo_disabled {
+                        Cell::from("Still fetching...")
+                    } else {
+                        Cell::from("Repo disabled, not fetching...")
+                    };
+                    vec![Row::new([cell, Cell::from("")])]
+                },
             };
             let archive_table = Table::new(archive_rows)
                 .widths(&[Constraint::Percentage(30), Constraint::Percentage(70)])
@@ -1172,9 +1190,12 @@ impl BorgTui {
     ) {
         let repo_items: Vec<_> = self
             .profile
-            .repos()
+            .repositories()
             .iter()
-            .map(|repo| ListItem::new(repo.path.clone()))
+            .map(|repo| {
+                let text = if repo.disabled() { " -- DISABLED" } else { "" };
+                ListItem::new(format!("{}{}", repo.path.clone(), text))
+            })
             .collect();
         let repo_list = List::new(repo_items)
             .block(Block::default().borders(Borders::ALL).title("Repositories"));

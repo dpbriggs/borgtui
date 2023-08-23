@@ -5,7 +5,7 @@ use crate::{
     profiles::{Profile, Repository},
     types::{log_on_error, send_error, send_info, BorgResult},
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use borgbackup::{
     asynchronous as borg_async,
     common::{
@@ -19,7 +19,7 @@ use tokio::{
     sync::{mpsc, Semaphore},
     task::JoinHandle,
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 fn archive_name(name: &str) -> String {
     format!(
@@ -108,6 +108,10 @@ pub(crate) async fn create_backup_internal(
 ) -> BorgResult<()> {
     let archive_name = archive_name(profile.name());
     for (create_option, repo) in profile.borg_create_options(archive_name)? {
+        if repo.disabled() {
+            warn!("Skipping disabled repo: {}", repo);
+            continue;
+        }
         info!(
             "Creating archive {} in repository {}",
             create_option.archive, create_option.repository
@@ -214,6 +218,9 @@ pub(crate) async fn mount(
     given_repository_path: String,
     mount_point: PathBuf,
 ) -> BorgResult<()> {
+    if repo.disabled() {
+        bail!("Attempted to mount disabled repo: {}", repo);
+    }
     let mount_source = if given_repository_path.contains("::") {
         MountSource::Archive {
             archive_name: given_repository_path,

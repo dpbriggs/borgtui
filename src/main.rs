@@ -415,7 +415,7 @@ async fn handle_action(
         Action::List => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             let timeout_duration_secs = profile.action_timeout_seconds() as i64;
-            for repo in profile.repositories() {
+            for repo in profile.active_repositories() {
                 let list_archives_per_repo = match tokio::time::timeout(
                     Duration::seconds(timeout_duration_secs).to_std().unwrap(),
                     borg::list_archives(repo),
@@ -440,7 +440,7 @@ async fn handle_action(
         }
         Action::Compact => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
-            for repo in profile.repositories() {
+            for repo in profile.active_repositories() {
                 borg::compact(repo).await?;
                 info!("Finished compacting {}", repo);
             }
@@ -448,7 +448,7 @@ async fn handle_action(
         }
         Action::Prune => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
-            for repo in profile.repositories() {
+            for repo in profile.active_repositories() {
                 borg::prune(repo, profile.prune_options()).await?;
                 info!("Finished pruning {}", repo);
             }

@@ -54,6 +54,8 @@ pub(crate) struct Repository {
     #[serde(default)]
     pub(crate) rsh: Option<String>,
     encryption: Encryption,
+    #[serde(default)]
+    disabled: bool,
     #[serde(skip)]
     pub(crate) lock: Arc<Mutex<()>>,
 }
@@ -79,6 +81,7 @@ impl Repository {
             path,
             encryption,
             rsh,
+            disabled: false,
             lock: Default::default(),
         }
     }
@@ -92,6 +95,12 @@ impl Repository {
                 .map_err(|e| anyhow::anyhow!("Failed to get passphrase from keyring: {}", e))
                 .map(Some),
         }
+    }
+
+    /// If true, the repo has been disabled and actions will
+    /// not be performed on it
+    pub(crate) fn disabled(&self) -> bool {
+        self.disabled
     }
 
     pub(crate) fn get_path(&self) -> String {
@@ -217,11 +226,15 @@ impl Profile {
         })
     }
 
+    pub(crate) fn active_repositories(&self) -> impl Iterator<Item = &Repository> {
+        self.repositories().iter().filter(|repo| !repo.disabled)
+    }
+
     pub(crate) fn name(&self) -> &str {
         &self.name
     }
 
-    pub(crate) fn repos(&self) -> &[Repository] {
+    pub(crate) fn repositories(&self) -> &[Repository] {
         &self.repos
     }
 
@@ -231,10 +244,6 @@ impl Profile {
 
     pub(crate) fn num_repos(&self) -> usize {
         self.repos.len()
-    }
-
-    pub(crate) fn repositories(&self) -> &[Repository] {
-        &self.repos
     }
 
     pub(crate) fn action_timeout_seconds(&self) -> u64 {
