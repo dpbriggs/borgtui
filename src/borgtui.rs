@@ -1112,8 +1112,6 @@ impl BorgTui {
         }
     }
 
-    // fn draw_archive_list<B: Backend>(&self, repo: &(), frame: &mut Frame<B>, area: Rect) {}
-
     fn draw_info_panel<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
         // TODO: Make something generic here
         let text = vec![
