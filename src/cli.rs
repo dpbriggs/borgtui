@@ -150,8 +150,8 @@ pub(crate) enum Action {
         #[arg(long, default_value = "zsh")]
         shell: String,
     },
-    /// Generate man pages for borgtui
-    ManPage {
+    /// Install man pages in a target directory.
+    InstallManPages {
         /// Path where man pages will be written. Several files will be written
         /// as borgtui uses subcommands.
         man_root: PathBuf,
