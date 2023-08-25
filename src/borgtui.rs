@@ -31,6 +31,8 @@ use tui::{
 };
 
 const BYTES_TO_MEGABYTES_F64: f64 = 1024.0 * 1024.0;
+// Maximum amount of stats to retain
+const BACKUP_STATS_RETENTION_AMOUNT: usize = 100;
 
 #[derive(Debug)]
 pub(crate) enum Command {
@@ -83,8 +85,8 @@ impl BackupStat {
 // TODO: Move each associated member to their own struct
 struct BackupState {
     // TODO: Use an actual struct for this!
-    backup_stats: HashMap<String, RingBuffer<BackupStat>>,
-    recently_backed_up_files: HashMap<String, RingBuffer<String>>,
+    backup_stats: HashMap<String, RingBuffer<BackupStat, BACKUP_STATS_RETENTION_AMOUNT>>,
+    recently_backed_up_files: HashMap<String, RingBuffer<String, 5>>,
     finished_backing_up: HashSet<String>,
 }
 
@@ -457,14 +459,13 @@ pub(crate) struct BorgTui {
     list_archives_state: HashMap<String, ListRepository>,
     directory_suggestions: Vec<PathBuf>,
     directory_suggestions_update_num: usize,
-    info_logs: RingBuffer<String>,
+    info_logs: RingBuffer<String, 10>,
     done: bool,
 }
 
 impl BorgTui {
     // The number of queued updates to pull per update tick.
     const POLLING_AMOUNT: usize = 10;
-    const BACKUP_STATS_RETENTION_AMOUNT: usize = 100;
 
     pub(crate) fn new(
         profile: Profile,
@@ -484,7 +485,7 @@ impl BorgTui {
             list_archives_state: HashMap::new(),
             directory_suggestions: Vec::new(),
             directory_suggestions_update_num: 0,
-            info_logs: RingBuffer::new(10),
+            info_logs: RingBuffer::new(),
             done: false,
         }
     }
@@ -751,7 +752,7 @@ impl BorgTui {
         self.backup_state
             .backup_stats
             .entry(repo)
-            .or_insert_with(|| RingBuffer::new(Self::BACKUP_STATS_RETENTION_AMOUNT))
+            .or_insert_with(RingBuffer::new)
             .push_back(backup_stat);
     }
 
@@ -759,7 +760,7 @@ impl BorgTui {
         self.backup_state
             .recently_backed_up_files
             .entry(repo)
-            .or_insert_with(|| RingBuffer::new(5))
+            .or_insert_with(RingBuffer::new)
             .push_back(path);
     }
 

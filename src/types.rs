@@ -58,23 +58,20 @@ macro_rules! log_on_error {
 pub(crate) use log_on_error;
 
 #[derive(Debug, Default)]
-pub(crate) struct RingBuffer<T> {
+pub(crate) struct RingBuffer<T, const N: usize> {
     deque: VecDeque<T>,
-    capacity: usize,
 }
 
-// TODO: Use const generics somehow
-impl<T> RingBuffer<T> {
-    pub(crate) fn new(size: usize) -> Self {
+impl<T, const N: usize> RingBuffer<T, N> {
+    pub(crate) fn new() -> Self {
         Self {
-            deque: VecDeque::with_capacity(size),
-            capacity: size,
+            deque: VecDeque::with_capacity(N),
         }
     }
 
     pub(crate) fn push_back(&mut self, item: T) {
         self.deque.push_back(item);
-        if self.deque.len() > self.capacity {
+        if self.deque.len() > N {
             self.deque.pop_front();
         }
     }
@@ -92,9 +89,9 @@ impl<T> RingBuffer<T> {
     }
 }
 
-impl<T> FromIterator<T> for RingBuffer<T> {
+impl<T, const N: usize> FromIterator<T> for RingBuffer<T, N> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut r = RingBuffer::new(256);
+        let mut r = RingBuffer::new();
         for item in iter.into_iter() {
             r.push_back(item)
         }
@@ -108,7 +105,7 @@ mod tests {
 
     #[test]
     fn test_pushes() {
-        let mut r = RingBuffer::new(3);
+        let mut r = RingBuffer::<char, 3>::new();
         for c in 'A'..='C' {
             r.push_back(c);
         }
@@ -127,14 +124,14 @@ mod tests {
 
     #[test]
     fn test_empty_iter() {
-        let empty: RingBuffer<u32> = RingBuffer::new(256);
+        let empty: RingBuffer<u32, 256> = RingBuffer::new();
         let test: Vec<u32> = Vec::new();
         assert_eq!(empty.iter().copied().collect::<Vec<_>>(), test);
     }
 
     #[test]
     fn test_larger() {
-        let big: RingBuffer<u32> = (0..=1024).collect();
+        let big: RingBuffer<u32, 256> = (0..=1024).collect();
         assert_eq!(
             big.iter().copied().collect::<Vec<_>>(),
             (769..=1024).collect::<Vec<_>>()
