@@ -178,7 +178,7 @@ async fn handle_tui_command(
                     "failed to update guess: {}"
                 );
                 let suggestions = log_on_error!(
-                    dir_finder.suggestions(&directory, 20),
+                    dir_finder.suggestions(&directory, 30),
                     "failed to obtain suggestions: {}"
                 );
                 log_on_error!(

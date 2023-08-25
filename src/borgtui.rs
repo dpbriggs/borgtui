@@ -125,6 +125,7 @@ struct InputFieldWithSuggestions {
     input_buffer_changed: bool,
     is_editing: bool,
     is_done: bool,
+    cursor: Option<usize>,
 }
 
 impl InputFieldWithSuggestions {
@@ -135,6 +136,7 @@ impl InputFieldWithSuggestions {
             input_buffer: initial_input_text,
             is_editing: true,
             is_done: false,
+            cursor: None,
         }
     }
 
@@ -159,12 +161,22 @@ impl InputFieldWithSuggestions {
         }
     }
 
+    fn update_cursor(&mut self, new_index: usize) {
+        let new_index = new_index.clamp(0, self.suggestions.len().saturating_sub(1));
+        self.cursor = Some(new_index);
+        if let Some(selected_item) = self.suggestions.iter().nth(new_index).cloned() {
+            self.input_buffer = selected_item;
+            // This is unnecessary but here to enforce us not scrambling the selection while a user is pathing.
+            self.input_buffer_changed = false;
+        }
+    }
+
     fn handle_key<F>(&mut self, key: KeyEvent, completion_fn: F) -> Option<String>
     where
         F: Fn(&BTreeSet<String>, &mut String) -> bool,
     {
-        match key.code {
-            KeyCode::Backspace => {
+        match (key.code, key.modifiers) {
+            (KeyCode::Backspace, _) => {
                 if key
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
@@ -184,21 +196,12 @@ impl InputFieldWithSuggestions {
                 self.input_buffer_changed = true;
                 None
             }
-            KeyCode::Tab => {
+            (KeyCode::Tab, _) => {
                 self.input_buffer_changed =
                     completion_fn(&self.suggestions, &mut self.input_buffer);
                 None
             }
-            KeyCode::Char(c) => {
-                if c == 'q' && !self.is_editing {
-                    self.is_done = true;
-                } else {
-                    self.input_buffer.push(c);
-                    self.input_buffer_changed = true;
-                }
-                None
-            }
-            KeyCode::Esc => {
+            (KeyCode::Esc, _) => {
                 if self.is_editing {
                     self.is_done = true;
                 } else {
@@ -206,9 +209,32 @@ impl InputFieldWithSuggestions {
                 }
                 None
             }
-            KeyCode::Enter => {
+            (KeyCode::Enter, _) => {
                 // TODO: Basic validation
                 Some(self.input_buffer.clone())
+            }
+            (KeyCode::Char('n'), KeyModifiers::CONTROL) | (KeyCode::Down, _) => {
+                let new_index = self.cursor.unwrap_or(0).saturating_add(1);
+                self.update_cursor(new_index);
+                None
+            }
+            (KeyCode::Char('p'), KeyModifiers::CONTROL) | (KeyCode::Up, _) => {
+                let new_index = self.cursor.unwrap_or(0).saturating_sub(1);
+                self.update_cursor(new_index);
+                None
+            }
+            (KeyCode::Char('g'), KeyModifiers::CONTROL) => {
+                self.is_done = true;
+                None
+            }
+            (KeyCode::Char(c), _) => {
+                if c == 'q' && !self.is_editing {
+                    self.is_done = true;
+                } else {
+                    self.input_buffer.push(c);
+                    self.input_buffer_changed = true;
+                }
+                None
             }
             _ => None,
         }
@@ -340,8 +366,12 @@ impl ErrorPopup {
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
-        if let KeyCode::Char('q') = key.code {
-            self.is_dismissed = true;
+        match (key.code, key.modifiers) {
+            (KeyCode::Char('g'), KeyModifiers::CONTROL) |
+            (KeyCode::Char('q'), _) => {
+                self.is_dismissed = true;
+            }
+            _ => ()
         }
     }
 
