@@ -299,7 +299,7 @@ impl AddFileToProfilePopup {
             // TODO: Make this search fuzzier (so lower case characters work)
             if let Some(res) = suggestions.range(input_buffer.clone()..).next() {
                 if input_buffer == res {
-                    // TODO: Handle windows backslash maybe never?
+                    // Given Borg doesn't support windows we won't be supporting backslashes here.
                     // TODO: Add a timeout here
                     // Canonicalize path
                     if let Ok(res) = std::fs::canonicalize(&input_buffer) {
@@ -316,7 +316,6 @@ impl AddFileToProfilePopup {
             input_buffer_changed
         });
         if let Some(value) = res {
-            // TODO: Basic validation
             if let Err(e) =
                 borgtui.add_backup_path_to_profile(value, self.path_successfully_added.clone())
             {
@@ -369,11 +368,10 @@ impl ErrorPopup {
 
     fn handle_key(&mut self, key: KeyEvent) {
         match (key.code, key.modifiers) {
-            (KeyCode::Char('g'), KeyModifiers::CONTROL) |
-            (KeyCode::Char('q'), _) => {
+            (KeyCode::Char('g'), KeyModifiers::CONTROL) | (KeyCode::Char('q'), _) => {
                 self.is_dismissed = true;
             }
-            _ => ()
+            _ => (),
         }
     }
 
@@ -534,7 +532,6 @@ impl BorgTui {
                     self.send_list_archives_command()?;
                 });
             }
-            // TODO: Have a "previous state" variable and toggle back to that.
             KeyCode::Char('p') => {
                 toggle_to_previous_state_or_run!(self, UIState::ProfileView, {
                     self.switch_ui_state(UIState::ProfileView);
@@ -1112,11 +1109,10 @@ impl BorgTui {
         {
             let archive_rows = match list_archive {
                 Some(list_archive) => {
-                    // TODO: Consider using a table to show the date!
                     list_archive
                         .archives
                         .iter()
-                        .rev() // TODO: Don't reverse in the UI. Make the original data in descending order
+                        .rev()
                         .map(|archive| {
                             Row::new([
                                 Cell::from(format!(
@@ -1163,7 +1159,6 @@ impl BorgTui {
     }
 
     fn draw_info_logs<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
-        // TODO: Sometimes this clips text!
         let info_log_text = self
             .info_logs
             .iter()
@@ -1259,7 +1254,6 @@ impl BorgTui {
     }
 
     fn draw_ui<B: Backend>(&mut self, frame: &mut Frame<B>) {
-        // TODO: Calculate chunks based on number of repos
         let (mut left, right) = self.split_screen(frame);
         if !self.info_logs.is_empty() {
             let chunks = Layout::default()

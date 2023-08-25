@@ -283,6 +283,7 @@ impl Profile {
     }
 
     pub(crate) async fn apply_operation(&mut self, op: ProfileOperation) -> BorgResult<()> {
+        // This looks silly but I was intending to add more profile operations in the future :^)
         match op {
             ProfileOperation::AddBackupPath(path) => self.add_backup_path(path).await,
         }
@@ -349,7 +350,6 @@ impl Profile {
     }
 
     pub(crate) fn has_repository(&self, path: &str) -> bool {
-        // TODO: Handle trailing slashes or other weirdness
         self.repos.iter().any(|r| r.path == path)
     }
 
