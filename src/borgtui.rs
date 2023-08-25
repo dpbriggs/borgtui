@@ -1144,8 +1144,7 @@ impl BorgTui {
         }
     }
 
-    fn draw_info_panel<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
-        // TODO: Make something generic here
+    fn draw_info_panel<B: Backend>(&mut self, frame: &mut Frame<B>, area: Rect) {
         let text = vec![
             Spans::from("• Press 'q' to quit"),
             Spans::from("• Press 'u' to backup"),
