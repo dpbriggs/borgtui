@@ -241,6 +241,13 @@ journalctl --user -u borgtui-create-default
 
 Simply issue =borgtui create= with the scheduling system of your choosing (cron, etc).
 
+** Known issues
+
+*** Password-based SSH doesn't work and messes up the terminal
+
+I can't find a way to ask SSH to not ask for a password without modifying the actual SSH command used or editing the ssh_config.
+I can't do the latter so a refactor would need to occur somewhere between BorgTUI and borg itself.
+
 ** Why does this exist?
 
 I wanted a tool to automatically *backup the same set of folders to every repository*.
