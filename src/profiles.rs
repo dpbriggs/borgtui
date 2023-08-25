@@ -358,6 +358,7 @@ impl Profile {
         path: String,
         borg_passphrase: Option<String>,
         rsh: Option<String>,
+        do_not_store_in_keyring: bool,
         store_passphase_in_cleartext: bool,
     ) -> BorgResult<()> {
         let encryption = match borg_passphrase {
@@ -365,7 +366,7 @@ impl Profile {
                 // TODO: Refactor this into a separate function
                 if store_passphase_in_cleartext {
                     Encryption::Raw(Passphrase(borg_passphrase))
-                } else {
+                } else if !do_not_store_in_keyring {
                     let entry = get_keyring_entry(&path)?;
                     entry.set_password(&borg_passphrase).with_context(|| {
                         format!(
@@ -375,6 +376,8 @@ impl Profile {
                     })?;
                     assert!(entry.get_password().is_ok());
                     Encryption::Keyring
+                } else {
+                    Encryption::None
                 }
             }
             None => Encryption::None,

@@ -41,6 +41,9 @@ pub(crate) enum Action {
         borg_passphrase: String,
 
         /// Do not store the passphrase in the keyring
+        ///
+        /// Note that this implies you need to specify BORG_PASSPHRASE every
+        /// time you want to use BorgTUI.
         #[arg(short, long)]
         do_not_store_in_keyring: bool,
 
@@ -77,6 +80,13 @@ pub(crate) enum Action {
         /// SSH command to use when connecting to the repo
         #[arg(short, long)]
         rsh: Option<String>,
+
+        /// Do not store the passphrase in the keyring
+        ///
+        /// Note that this implies you need to specify BORG_PASSPHRASE every
+        /// time you want to use BorgTUI.
+        #[arg(short, long)]
+        do_not_store_in_keyring: bool,
 
         // TODO: Simplify these options!
         /// The encryption passphrase to use. If not specified and borgtui

@@ -27,16 +27,6 @@ mod types;
 
 const QUEUE_SIZE: usize = 1000;
 
-fn try_get_initial_repo_password() -> BorgResult<Option<String>> {
-    if atty::is(atty::Stream::Stdin) {
-        rpassword::read_password()
-            .with_context(|| "Failed to read password from tty")
-            .map(|pass| if pass.is_empty() { None } else { Some(pass) })
-    } else {
-        bail!("Password must be provided via an interactive terminal!")
-    }
-}
-
 fn determine_directory_size(
     path: PathBuf,
     byte_count: Arc<AtomicU64>,
@@ -350,7 +340,7 @@ async fn handle_action(
             let _ = do_not_store_in_keyring;
             let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             borg::init(borg_passphrase.clone(), location.clone(), rsh.clone()).await?;
-            profile.add_repository(location.clone(), Some(borg_passphrase), rsh, false)?;
+            profile.add_repository(location.clone(), Some(borg_passphrase), rsh, do_not_store_in_keyring, false)?;
             profile.save_profile().await?;
             info!("Added repo: {}", location);
             Ok(())
@@ -382,9 +372,10 @@ async fn handle_action(
             no_encryption,
             borg_passphrase,
             rsh,
+            do_not_store_in_keyring,
             store_passphase_in_cleartext,
         } => {
-            // TODO: Check if repo is valid
+            // TODO: Check if repo is valid (maybe once "borg info" or something works)
             let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             if profile.has_repository(&repository) {
                 bail!(
@@ -399,7 +390,7 @@ async fn handle_action(
                     if no_encryption {
                         None
                     } else {
-                        try_get_initial_repo_password()?
+                        bail!("Please provide BORG_PASSPHRASE in the environment or use the appropriate flag.");
                     }
                 }
             };
@@ -407,6 +398,7 @@ async fn handle_action(
                 repository.clone(),
                 passphrase,
                 rsh,
+                do_not_store_in_keyring,
                 store_passphase_in_cleartext,
             )?;
             profile.save_profile().await?;
