@@ -248,6 +248,10 @@ Simply issue =borgtui create= with the scheduling system of your choosing (cron,
 I can't find a way to ask SSH to not ask for a password without modifying the actual SSH command used or editing the ssh_config.
 I can't do the latter so a refactor would need to occur somewhere between BorgTUI and borg itself.
 
+*** If you attempt to init or add a repository with a faulty (or not-running) keyring the profile saves but the password doesn't
+
+A workaround is to start whatever keyring you use (search "wallet", open chromium, etc), remove the repo from the config-path, and then use `add-repo` to re-add it.
+
 ** Why does this exist?
 
 I wanted a tool to automatically *backup the same set of folders to every repository*.
