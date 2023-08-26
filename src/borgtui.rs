@@ -1042,7 +1042,7 @@ impl BorgTui {
                     items.insert(
                         0,
                         ListItem::new(format!(
-                            "# files: {} (deduplicated: {})",
+                            "# files: {} (backup size after deduplication: {})",
                             backup_stat.num_files,
                             PrettyBytes(backup_stat.deduplicated_size),
                         )),
