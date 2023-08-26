@@ -179,6 +179,34 @@ async fn handle_tui_command(
             });
             Ok(false)
         }
+        Command::Mount(repo, repo_or_archive, mountpoint) => {
+            let mountpoint_p = PathBuf::from(mountpoint.clone());
+            tokio::spawn(async move {
+                if let Err(e) =
+                    borg::mount(&repo, repo_or_archive.clone(), mountpoint_p.clone()).await
+                {
+                    send_error!(command_response_send, format!("Failed to mount: {}", e))
+                } else {
+                    send_info!(
+                        command_response_send,
+                        format!("Successfully mounted {}", repo_or_archive)
+                    );
+                    log_on_error!(
+                        command_response_send
+                            .send(CommandResponse::MountResult(repo_or_archive, mountpoint))
+                            .await,
+                        "Failed to send suggestion results: {}"
+                    );
+                    if let Err(e) = open::that_detached(mountpoint_p) {
+                        send_error!(
+                            command_response_send,
+                            format!("Failed to open file manager: {}", e.to_string())
+                        );
+                    }
+                }
+            });
+            Ok(false)
+        }
         Command::Quit => Ok(true),
     }
 }
@@ -289,6 +317,9 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
             CommandResponse::SuggestionResults(_) => {
                 error!("Received SuggestionResults in non-interactive!")
             }
+            CommandResponse::MountResult(_, _) => {
+                error!("Received MountResult in non-interactive!")
+            }
             CommandResponse::Error(error_message) => error!(error_message),
             CommandResponse::ProfileUpdated(_profile) => info!("Profile updated."),
         }
@@ -340,7 +371,13 @@ async fn handle_action(
             let _ = do_not_store_in_keyring;
             let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             borg::init(borg_passphrase.clone(), location.clone(), rsh.clone()).await?;
-            profile.add_repository(location.clone(), Some(borg_passphrase), rsh, do_not_store_in_keyring, false)?;
+            profile.add_repository(
+                location.clone(),
+                Some(borg_passphrase),
+                rsh,
+                do_not_store_in_keyring,
+                false,
+            )?;
             profile.save_profile().await?;
             info!("Added repo: {}", location);
             Ok(())
@@ -465,17 +502,8 @@ async fn handle_action(
             mountpoint,
         } => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
-            let repo_name = match repository_path.find("::") {
-                Some(loc) => repository_path[..loc].to_string(),
-                None => repository_path.to_string(),
-            };
-            tracing::debug!("Figured repo name is: {}", repo_name);
-            let repo = profile
-                .repositories()
-                .iter()
-                .find(|repo| repo.path == repo_name)
-                .ok_or_else(|| anyhow!("Could not find repo: {}", repository_path))?;
-            borg::mount(repo, repository_path, mountpoint).await?;
+            let repo = profile.find_repo_from_mount_src(&repository_path)?;
+            borg::mount(&repo, repository_path, mountpoint).await?;
             Ok(())
         }
         Action::Umount { mountpoint } => {

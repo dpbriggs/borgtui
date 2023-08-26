@@ -212,10 +212,18 @@ pub(crate) async fn mount(
     repo: &Repository,
     // This could be a repo path (/backup/borgrepo) or an archive (/backup/borgrepo::archive_name)
     given_repository_path: String,
-    mount_point: PathBuf,
+    mountpoint: PathBuf,
 ) -> BorgResult<()> {
     if repo.disabled() {
         bail!("Attempted to mount disabled repo: {}", repo);
+    }
+    // See if the path exists, and if not, try to make it
+    if let Ok(false) = tokio::fs::try_exists(&mountpoint).await {
+        info!(
+            "Attempting to create directory for mounting: {}",
+            mountpoint.to_string_lossy()
+        );
+        tokio::fs::create_dir_all(&mountpoint).await?;
     }
     let mount_source = if given_repository_path.contains("::") {
         MountSource::Archive {
@@ -230,7 +238,7 @@ pub(crate) async fn mount(
         }
     };
     let mut mount_options =
-        MountOptions::new(mount_source, mount_point.to_string_lossy().to_string());
+        MountOptions::new(mount_source, mountpoint.to_string_lossy().to_string());
     mount_options.passphrase = repo.get_passphrase()?;
     borg_async::mount(&mount_options, &repo.common_options())
         .await

@@ -33,6 +33,10 @@ use tui::{
 const BYTES_TO_MEGABYTES_F64: f64 = 1024.0 * 1024.0;
 // Maximum amount of stats to retain
 const BACKUP_STATS_RETENTION_AMOUNT: usize = 100;
+// How often to update the TUI
+const TICK_RATE_MILLIS: u64 = 16;
+// How many files to remember when backing up
+const NUM_RECENTLY_BACKED_UP_FILES: usize = 5;
 
 #[derive(Debug)]
 pub(crate) enum Command {
@@ -44,6 +48,7 @@ pub(crate) enum Command {
     Prune(Repository, crate::profiles::PruneOptions),
     DetermineDirectorySize(PathBuf, Arc<AtomicU64>, Vec<String>),
     GetDirectorySuggestionsFor(String),
+    Mount(Repository, String, String),
     Quit,
 }
 
@@ -54,7 +59,9 @@ pub(crate) enum CommandResponse {
     ProfileUpdated(Profile),
     Info(String),
     Error(String),
+    // TODO: Why is this a tuple :thinking:
     SuggestionResults((Vec<PathBuf>, usize)),
+    MountResult(String, String),
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -86,7 +93,7 @@ impl BackupStat {
 struct BackupState {
     // TODO: Use an actual struct for this!
     backup_stats: HashMap<String, RingBuffer<BackupStat, BACKUP_STATS_RETENTION_AMOUNT>>,
-    recently_backed_up_files: HashMap<String, RingBuffer<String, 5>>,
+    recently_backed_up_files: HashMap<String, RingBuffer<String, NUM_RECENTLY_BACKED_UP_FILES>>,
     finished_backing_up: HashSet<String>,
 }
 
@@ -173,9 +180,15 @@ impl InputFieldWithSuggestions {
         }
     }
 
-    fn handle_key<F>(&mut self, key: KeyEvent, completion_fn: F) -> Option<String>
+    fn handle_key<CompletionFn, ValidationFn>(
+        &mut self,
+        key: KeyEvent,
+        completion_fn: CompletionFn,
+        validtion_fn: ValidationFn,
+    ) -> Option<String>
     where
-        F: Fn(&BTreeSet<String>, &mut String) -> bool,
+        CompletionFn: Fn(&BTreeSet<String>, &mut String) -> bool,
+        ValidationFn: Fn(&BTreeSet<String>, &String) -> bool,
     {
         match (key.code, key.modifiers) {
             (KeyCode::Backspace, _) => {
@@ -213,7 +226,12 @@ impl InputFieldWithSuggestions {
             }
             (KeyCode::Enter, _) => {
                 // TODO: Basic validation
-                Some(self.input_buffer.clone())
+                let validated_successfully = validtion_fn(&self.suggestions, &self.input_buffer);
+                if validated_successfully {
+                    Some(self.input_buffer.clone())
+                } else {
+                    None
+                }
             }
             (KeyCode::Char('n'), KeyModifiers::CONTROL) | (KeyCode::Down, _) => {
                 let new_index = self.cursor.unwrap_or(0).saturating_add(1);
@@ -242,7 +260,10 @@ impl InputFieldWithSuggestions {
         }
     }
 
-    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+    fn draw<B: Backend, F>(&self, frame: &mut Frame<B>, area: Rect, input_panel_style: F)
+    where
+        F: Fn(&BTreeSet<String>, &str) -> bool,
+    {
         frame.render_widget(tui::widgets::Clear, area);
         let input_box_size = 3;
         let chunks = Layout::default()
@@ -262,11 +283,13 @@ impl InputFieldWithSuggestions {
             .range(self.input_buffer.clone()..)
             .map(|item| ListItem::new(item.to_string()))
             .collect();
+        // TODO Add the ability to change "Content" to be configurable from the caller.
         let content =
             List::new(list_items).block(Block::default().borders(Borders::ALL).title("Content"));
         frame.render_widget(content, top_area);
 
-        let input_panel_style = if std::fs::metadata(&self.input_buffer).is_ok() {
+        // TODO: Add a "red" state when validation fails
+        let input_panel_style = if input_panel_style(&self.suggestions, &self.input_buffer) {
             Style::default().fg(Color::Green)
         } else {
             Style::default()
@@ -280,9 +303,177 @@ impl InputFieldWithSuggestions {
 }
 
 #[derive(Debug)]
+enum MountPopupSelectionState {
+    Repo,
+    Archive,
+    MountPoint,
+}
+
+#[derive(Debug)]
+struct MountPopup {
+    state: MountPopupSelectionState,
+    input: InputFieldWithSuggestions,
+    repo_or_archive: Option<String>,
+    num_list_archives: usize,
+    is_done: bool,
+}
+
+impl MountPopup {
+    fn new(is_repo: bool) -> Self {
+        let state = if is_repo {
+            MountPopupSelectionState::Repo
+        } else {
+            MountPopupSelectionState::Archive
+        };
+        MountPopup {
+            state,
+            input: InputFieldWithSuggestions::new("".into()),
+            repo_or_archive: None,
+            num_list_archives: 0,
+            is_done: false,
+        }
+    }
+
+    fn update_list_archive_suggestions(&mut self, list_archives: &HashMap<String, ListRepository>) {
+        let num_list_archives = list_archives
+            .values()
+            .map(|list_repo| list_repo.archives.len())
+            .sum();
+        if num_list_archives != self.num_list_archives {
+            self.num_list_archives = num_list_archives;
+            self.input
+                .update_suggestions(list_archives.iter().flat_map(|(repo, list_archive)| {
+                    list_archive
+                        .archives
+                        .iter()
+                        .map(|archive| format!("{}::{}", repo.clone(), archive.name))
+                }));
+        }
+    }
+
+    fn on_tick(
+        &mut self,
+        command_channel: &Sender<Command>,
+        directory_suggestions: &[PathBuf],
+        list_archives: &HashMap<String, ListRepository>,
+    ) -> BorgResult<()> {
+        match &self.state {
+            MountPopupSelectionState::Repo => {
+                if self.input.suggestions.len() != list_archives.len() {
+                    self.input.update_suggestions(list_archives.keys().cloned());
+                }
+            }
+            MountPopupSelectionState::Archive => {
+                self.update_list_archive_suggestions(list_archives);
+            }
+            MountPopupSelectionState::MountPoint => {
+                self.input.update_suggestions(
+                    directory_suggestions
+                        .iter()
+                        .map(|path| path.to_string_lossy().to_string()),
+                );
+                self.input.on_input_buffer_changed(|input_buffer| {
+                    let command = Command::GetDirectorySuggestionsFor(input_buffer.to_string());
+                    command_channel.blocking_send(command)?;
+                    Ok(())
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_key_repo_or_archive(&mut self, key: KeyEvent) {
+        let res = self.input.handle_key(
+            key,
+            |suggestions, input_buffer| {
+                let mut input_buffer_changed = false;
+                if let Some(res) = suggestions.range(input_buffer.clone()..).next() {
+                    if res != input_buffer {
+                        *input_buffer = res.clone();
+                        input_buffer_changed = true;
+                    }
+                }
+                input_buffer_changed
+            },
+            |suggestions, input_buffer| suggestions.contains(input_buffer),
+        );
+        if let Some(value) = res {
+            self.repo_or_archive = Some(value);
+            self.state = MountPopupSelectionState::MountPoint;
+            self.input = InputFieldWithSuggestions::new(
+                dirs::home_dir()
+                    .map(|mut p| {
+                        p.push("borg-mount");
+                        p.to_string_lossy().to_string()
+                    })
+                    .unwrap_or_else(String::new),
+            );
+        }
+    }
+
+    fn handle_key_mount_point_selection(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
+        let res = self.input.handle_key(
+            key,
+            filter_directory_suggestions,
+            |_suggestions, _input_buffer| true,
+        );
+        if let Some(mountpoint) = res {
+            if let Err(e) = borgtui.mount(self.repo_or_archive.clone().unwrap(), mountpoint) {
+                borgtui.add_error(format!("{}", e));
+            }
+            self.is_done = true;
+        }
+    }
+
+    fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
+        let is_repo_or_archive_selection = matches!(
+            &self.state,
+            MountPopupSelectionState::Archive | MountPopupSelectionState::Repo
+        );
+        if is_repo_or_archive_selection {
+            self.handle_key_repo_or_archive(key);
+        } else {
+            self.handle_key_mount_point_selection(key, borgtui);
+        }
+    }
+
+    fn is_done(&self) -> bool {
+        self.input.is_done() || self.is_done
+    }
+
+    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        self.input.draw(frame, area, |suggestions, input_buffer| {
+            suggestions.contains(input_buffer)
+        })
+    }
+}
+
+#[derive(Debug)]
 struct AddFileToProfilePopup {
     path_successfully_added: Arc<AtomicBool>,
     input: InputFieldWithSuggestions,
+}
+
+fn filter_directory_suggestions(suggestions: &BTreeSet<String>, input_buffer: &mut String) -> bool {
+    let mut input_buffer_changed = false;
+    // TODO: Make this search fuzzier (so lower case characters work)
+    if let Some(res) = suggestions.range(input_buffer.clone()..).next() {
+        if input_buffer == res {
+            // Given Borg doesn't support windows we won't be supporting backslashes here.
+            // TODO: Add a timeout here
+            // Canonicalize path
+            if let Ok(res) = std::fs::canonicalize(&input_buffer) {
+                *input_buffer = res.to_string_lossy().to_string();
+            }
+            if !input_buffer.ends_with('/') {
+                input_buffer.push('/');
+            }
+        } else {
+            *input_buffer = res.to_string();
+        }
+        input_buffer_changed = true;
+    }
+    input_buffer_changed
 }
 
 impl AddFileToProfilePopup {
@@ -294,27 +485,14 @@ impl AddFileToProfilePopup {
     }
 
     fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
-        let res = self.input.handle_key(key, |suggestions, input_buffer| {
-            let mut input_buffer_changed = false;
-            // TODO: Make this search fuzzier (so lower case characters work)
-            if let Some(res) = suggestions.range(input_buffer.clone()..).next() {
-                if input_buffer == res {
-                    // Given Borg doesn't support windows we won't be supporting backslashes here.
-                    // TODO: Add a timeout here
-                    // Canonicalize path
-                    if let Ok(res) = std::fs::canonicalize(&input_buffer) {
-                        *input_buffer = res.to_string_lossy().to_string();
-                    }
-                    if !input_buffer.ends_with('/') {
-                        input_buffer.push('/');
-                    }
-                } else {
-                    *input_buffer = res.to_string();
-                }
-                input_buffer_changed = true;
-            }
-            input_buffer_changed
-        });
+        let res = self.input.handle_key(
+            key,
+            // Completion function
+            filter_directory_suggestions,
+            // Validation Function
+            // TODO: Check if the file or path exists
+            |_, _| true,
+        );
         if let Some(value) = res {
             if let Err(e) =
                 borgtui.add_backup_path_to_profile(value, self.path_successfully_added.clone())
@@ -348,19 +526,21 @@ impl AddFileToProfilePopup {
     }
 
     fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
-        self.input.draw(frame, area)
+        self.input.draw(frame, area, |_, input_buffer| {
+            std::fs::metadata(input_buffer).is_ok()
+        })
     }
 }
 
 #[derive(Debug, Clone)]
-struct ErrorPopup {
+struct MessagePopup {
     error_message: String,
     is_dismissed: bool,
 }
 
-impl ErrorPopup {
+impl MessagePopup {
     fn new(error_message: String) -> Self {
-        ErrorPopup {
+        MessagePopup {
             error_message,
             is_dismissed: false,
         }
@@ -396,13 +576,15 @@ impl ErrorPopup {
 #[derive(Debug)]
 enum Popup {
     AddFileToProfile(AddFileToProfilePopup),
-    Error(ErrorPopup),
+    Mount(MountPopup),
+    Error(MessagePopup),
 }
 
 impl Popup {
     fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
         match self {
             Popup::AddFileToProfile(p) => p.handle_key(key, borgtui),
+            Popup::Mount(m) => m.handle_key(key, borgtui),
             Popup::Error(e) => e.handle_key(key),
         }
     }
@@ -410,21 +592,25 @@ impl Popup {
         &mut self,
         command_channel: &Sender<Command>,
         directory_suggestions: &[PathBuf],
+        list_archives: &HashMap<String, ListRepository>,
     ) -> BorgResult<()> {
         match self {
             Popup::AddFileToProfile(p) => p.on_tick(command_channel, directory_suggestions),
+            Popup::Mount(m) => m.on_tick(command_channel, directory_suggestions, list_archives),
             Popup::Error(p) => p.on_tick(),
         }
     }
     fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
         match self {
             Popup::AddFileToProfile(p) => p.draw(frame, area),
+            Popup::Mount(m) => m.draw(frame, area),
             Popup::Error(p) => p.draw(frame, area),
         }
     }
     fn is_done(&self) -> bool {
         match self {
             Popup::AddFileToProfile(p) => p.is_done(),
+            Popup::Mount(m) => m.is_done(),
             Popup::Error(p) => p.is_done(),
         }
     }
@@ -436,8 +622,14 @@ impl From<AddFileToProfilePopup> for Popup {
     }
 }
 
-impl From<ErrorPopup> for Popup {
-    fn from(value: ErrorPopup) -> Self {
+impl From<MountPopup> for Popup {
+    fn from(value: MountPopup) -> Self {
+        Popup::Mount(value)
+    }
+}
+
+impl From<MessagePopup> for Popup {
+    fn from(value: MessagePopup) -> Self {
         Popup::Error(value)
     }
 }
@@ -452,6 +644,7 @@ pub(crate) struct BorgTui {
     ui_state: UIState,
     previous_ui_state: Option<UIState>,
     popup_stack: Vec<Popup>,
+    currently_mounted_items: Option<Vec<(String, String)>>,
     // This is not an enum field to make it easier to tab while a backup is in progress.
     backup_state: BackupState,
     list_archives_state: HashMap<String, ListRepository>,
@@ -471,7 +664,7 @@ impl BorgTui {
         recv_channel: Receiver<CommandResponse>,
     ) -> BorgTui {
         BorgTui {
-            tick_rate: Duration::from_millis(16),
+            tick_rate: Duration::from_millis(TICK_RATE_MILLIS),
             profile,
             backup_path_sizes: HashMap::new(),
             command_channel,
@@ -479,6 +672,7 @@ impl BorgTui {
             ui_state: UIState::ProfileView,
             previous_ui_state: None,
             popup_stack: Vec::new(),
+            currently_mounted_items: None,
             backup_state: BackupState::default(),
             list_archives_state: HashMap::new(),
             directory_suggestions: Vec::new(),
@@ -559,6 +753,14 @@ impl BorgTui {
                     self.add_error(err_msg);
                 }
             }
+            KeyCode::Char('m') => {
+                self.send_list_archives_command()?;
+                self.popup_stack.push(MountPopup::new(false).into());
+            }
+            KeyCode::Char('M') => {
+                self.send_list_archives_command()?;
+                self.popup_stack.push(MountPopup::new(true).into());
+            }
             KeyCode::Char('\\') => {
                 self.add_info("Pruning each repo...");
                 if let Err(e) = self.send_prune_command() {
@@ -631,7 +833,7 @@ impl BorgTui {
     }
 
     fn add_error(&mut self, error: String) {
-        self.popup_stack.push(ErrorPopup::new(error).into())
+        self.popup_stack.push(MessagePopup::new(error).into())
     }
 
     fn add_backup_path_to_profile(
@@ -645,6 +847,14 @@ impl BorgTui {
                 ProfileOperation::AddBackupPath(PathBuf::try_from(path)?),
                 signal_success,
             ))?;
+        Ok(())
+    }
+
+    fn mount(&mut self, repo_or_archive: String, mountpoint: String) -> BorgResult<()> {
+        // TODO: Actually retain repository information and use that
+        let repo = self.profile.find_repo_from_mount_src(&repo_or_archive)?;
+        self.command_channel
+            .blocking_send(Command::Mount(repo, repo_or_archive, mountpoint))?;
         Ok(())
     }
 
@@ -807,6 +1017,14 @@ impl BorgTui {
                     self.directory_suggestions = suggestions;
                 }
             }
+            CommandResponse::MountResult(repo_or_archive, mountpoint) => {
+                if self.currently_mounted_items.is_none() {
+                    self.currently_mounted_items = Some(Vec::new());
+                }
+                if let Some(mounted_items) = self.currently_mounted_items.as_mut() {
+                    mounted_items.push((repo_or_archive, mountpoint))
+                }
+            }
             CommandResponse::Error(error_message) => self.add_error(error_message),
             CommandResponse::ProfileUpdated(profile) => {
                 self.add_info("Profile updated.");
@@ -852,7 +1070,11 @@ impl BorgTui {
         }
         // TODO: Above or below?
         self.popup_stack.iter_mut().try_for_each(|popup| {
-            popup.on_tick(&self.command_channel, &self.directory_suggestions)
+            popup.on_tick(
+                &self.command_channel,
+                &self.directory_suggestions,
+                &self.list_archives_state,
+            )
         })?;
         Ok(())
     }
@@ -1081,10 +1303,8 @@ impl BorgTui {
             })
     }
 
-    fn draw_all_archive_lists<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
-        // (RepoName, Option<ListArchive>)
-        let repos_with_archives: Vec<_> = self
-            .profile
+    fn repos_with_archives(&self) -> Vec<(String, Option<ListRepository>, bool)> {
+        self.profile
             .repositories()
             .iter()
             .map(|repo| {
@@ -1094,7 +1314,12 @@ impl BorgTui {
                     repo.disabled(),
                 )
             })
-            .collect();
+            .collect()
+    }
+
+    fn draw_all_archive_lists<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        // (RepoName, Option<ListArchive>)
+        let repos_with_archives: Vec<_> = self.repos_with_archives();
         let backup_constraints = std::iter::repeat(Constraint::Percentage(
             100 / repos_with_archives.len() as u16,
         ))
@@ -1150,6 +1375,8 @@ impl BorgTui {
             Spans::from("• Press 'a' to add a backup path"),
             Spans::from("• Press 's' to save profile"),
             Spans::from("• Press 'c' to compact"),
+            Spans::from("• Press 'm' to mount"),
+            Spans::from("• Press 'M' to mount a repo"),
             Spans::from("• Press '\\' to prune"),
         ];
         let info_panel = Paragraph::new(text)
@@ -1207,11 +1434,40 @@ impl BorgTui {
         frame.render_widget(table, backup_paths_area);
     }
 
+    fn draw_mounted_items<B: Backend>(&mut self, frame: &mut Frame<B>, backup_paths_area: Rect) {
+        let header_cells = ["Source", "Mount Point"]
+            .iter()
+            .map(|header| Cell::from(*header));
+        let header_row = Row::new(header_cells);
+        let rows = self
+            .currently_mounted_items
+            .as_ref()
+            .unwrap_or(&vec![])
+            .iter()
+            .map(|(repo_or_archive, mount_point)| {
+                Row::new([
+                    Cell::from(repo_or_archive.clone()),
+                    Cell::from(mount_point.clone()),
+                ])
+            })
+            .collect::<Vec<_>>();
+        let table = Table::new(rows)
+            .header(header_row)
+            .widths(&[Constraint::Percentage(50), Constraint::Percentage(50)])
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Mounted Directories"),
+            );
+        frame.render_widget(table, backup_paths_area);
+    }
+
     fn draw_profile_view<B: Backend>(
         &mut self,
         frame: &mut Frame<B>,
         repo_area: Rect,
         backup_paths_area: Rect,
+        mounted_items: Option<Rect>,
     ) {
         let repo_items: Vec<_> = self
             .profile
@@ -1226,17 +1482,41 @@ impl BorgTui {
             .block(Block::default().borders(Borders::ALL).title("Repositories"));
         frame.render_widget(repo_list, repo_area);
         self.draw_backup_dirs(frame, backup_paths_area);
+        if let Some(mounted_items_area) = mounted_items {
+            self.draw_mounted_items(frame, mounted_items_area);
+        }
     }
 
     fn draw_main_right_panel<B: Backend>(&mut self, frame: &mut Frame<B>, right_area: Rect) {
         match &self.ui_state {
             UIState::ProfileView => {
-                let profile_chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Percentage(40), Constraint::Percentage(60)].as_ref())
-                    .split(right_area);
-                let (repo_area, backup_paths_area) = (profile_chunks[0], profile_chunks[1]);
-                self.draw_profile_view(frame, repo_area, backup_paths_area);
+                let mounted_items = self
+                    .currently_mounted_items
+                    .as_ref()
+                    .map(|mounted| mounted.len())
+                    .unwrap_or(0);
+                let (repo_area, backup_paths_area, mounted_items) = if mounted_items > 0 {
+                    let profile_chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([
+                            Constraint::Percentage(30),
+                            Constraint::Percentage(30),
+                            Constraint::Percentage(40),
+                        ])
+                        .split(right_area);
+                    (
+                        profile_chunks[0],
+                        profile_chunks[1],
+                        Some(profile_chunks[2]),
+                    )
+                } else {
+                    let profile_chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+                        .split(right_area);
+                    (profile_chunks[0], profile_chunks[1], None)
+                };
+                self.draw_profile_view(frame, repo_area, backup_paths_area, mounted_items);
             }
             UIState::BackingUp => {
                 let backing_up_chunks = Layout::default()

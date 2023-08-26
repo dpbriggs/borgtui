@@ -245,6 +245,18 @@ impl Profile {
         })
     }
 
+    pub(crate) fn find_repo_from_mount_src(&self, repo_or_archive: &str) -> BorgResult<Repository> {
+        let repo_name = match repo_or_archive.find("::") {
+            Some(loc) => repo_or_archive[..loc].to_string(),
+            None => repo_or_archive.to_string(),
+        };
+        tracing::debug!("Figured repo name is: {}", repo_name);
+        self.active_repositories()
+            .find(|repo| repo.path == repo_name)
+            .ok_or_else(|| anyhow::anyhow!("Could not find repo: {}", repo_or_archive))
+            .cloned()
+    }
+
     pub(crate) fn active_repositories(&self) -> impl Iterator<Item = &Repository> {
         self.repositories().iter().filter(|repo| !repo.disabled)
     }
