@@ -58,3 +58,4 @@ CLOSED: [2023-08-26 Sat 20:56]
 ** TODO Add borg check support
 ** TODO Update the README to document the project
 ** TODO Add the ability to move the cursor when adding projects by CLI
+** TODO Add a cursor in "InputFieldWithSuggestions" to help track which one is "selected"
