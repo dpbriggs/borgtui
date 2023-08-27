@@ -7,7 +7,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::types::BorgResult;
 
-const ABOUT: &str = "Like borgomatic, but with a TUI to help automate borg backups :^)";
+const ABOUT: &str = "A TUI and CLI to help automate borg backups :^)";
 
 #[derive(Parser, Debug, Clone)]
 #[command(
