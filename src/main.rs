@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -26,6 +26,12 @@ mod profiles;
 mod types;
 
 const QUEUE_SIZE: usize = 1000;
+
+/// Open a file path in a detached GUI file manager.
+fn open_path_in_gui_file_manager<P: AsRef<Path>>(path: P) -> BorgResult<()>{
+    open::that_detached(path.as_ref())?;
+    Ok(())
+}
 
 fn determine_directory_size(
     path: PathBuf,
@@ -197,7 +203,7 @@ async fn handle_tui_command(
                             .await,
                         "Failed to send suggestion results: {}"
                     );
-                    if let Err(e) = open::that_detached(mountpoint_p) {
+                    if let Err(e) = open_path_in_gui_file_manager(mountpoint_p) {
                         send_error!(
                             command_response_send,
                             format!("Failed to open file manager: {}", e.to_string())
@@ -520,10 +526,16 @@ async fn handle_action(
         Action::Mount {
             repository_path,
             mountpoint,
+            do_not_open_in_gui_file_manager,
         } => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             let repo = profile.find_repo_from_mount_src(&repository_path)?;
-            borg::mount(&repo, repository_path, mountpoint).await?;
+            borg::mount(&repo, repository_path, mountpoint.clone()).await?;
+            if !do_not_open_in_gui_file_manager {
+                if let Err(e) = open_path_in_gui_file_manager(mountpoint) {
+                    error!("Failed to open GUI file manager: {}", e);
+                }
+            }
             Ok(())
         }
         Action::Umount { mountpoint } => {

@@ -106,12 +106,16 @@ pub(crate) enum Action {
     },
     /// Create a new profile with a given name
     AddProfile { name: String },
-    /// Mount a mounted Borg repo or archive as a FUSE filesystem.
+    /// Mount a borg repo or archive as a FUSE filesystem.
     Mount {
         /// The directory or file path to add to backup
         repository_path: String,
         /// The mount point
         mountpoint: PathBuf,
+        /// If set, don't open a GUI file manager to browse the mounted
+        /// repository or archive.
+        #[arg(short, long)]
+        do_not_open_in_gui_file_manager: bool,
     },
     /// Unmount a mounted Borg repo or archive
     Umount {
