@@ -15,7 +15,7 @@ use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
 use tui::symbols;
 use tui::text::{Span, Spans};
-use tui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, Wrap};
+use tui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, Tabs, Wrap};
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
@@ -49,6 +49,7 @@ pub(crate) enum Command {
     DetermineDirectorySize(PathBuf, Arc<AtomicU64>, Vec<String>),
     GetDirectorySuggestionsFor(String),
     Mount(Repository, String, String),
+    Unmount(String),
     Quit,
 }
 
@@ -532,6 +533,118 @@ impl AddFileToProfilePopup {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum ConfirmationButtonState {
+    Yes,
+    No,
+}
+
+type OnConfirmationFn = Box<dyn Fn(ConfirmationButtonState, &mut BorgTui)>;
+
+struct ConfirmationPopup {
+    text: String,
+    button_state: ConfirmationButtonState,
+    on_confirmation_fn: OnConfirmationFn,
+    is_dismissed: bool,
+}
+
+impl std::fmt::Debug for ConfirmationPopup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConfirmationPopup")
+            .field("text", &self.text)
+            .field("button_state", &self.button_state)
+            .field("is_dismissed", &self.is_dismissed)
+            .finish()
+    }
+}
+
+impl ConfirmationButtonState {
+    fn compliment(&self) -> ConfirmationButtonState {
+        match self {
+            ConfirmationButtonState::Yes => ConfirmationButtonState::No,
+            ConfirmationButtonState::No => ConfirmationButtonState::Yes,
+        }
+    }
+}
+
+impl ConfirmationPopup {
+    fn new(
+        text: String,
+        inital_button_state: ConfirmationButtonState,
+        on_confirmation_fn: OnConfirmationFn,
+    ) -> Self {
+        Self {
+            text,
+            button_state: inital_button_state,
+            is_dismissed: false,
+            on_confirmation_fn,
+        }
+    }
+
+    fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char('g'), KeyModifiers::CONTROL) | (KeyCode::Char('q'), _) => {
+                self.is_dismissed = true;
+            }
+            (KeyCode::Enter, _) => {
+                (self.on_confirmation_fn)(self.button_state, borgtui);
+                self.is_dismissed = true;
+            }
+            (KeyCode::Right | KeyCode::Left, _) => {
+                self.button_state = self.button_state.compliment();
+            }
+            (KeyCode::Char('y'), _) => {
+                self.button_state = ConfirmationButtonState::Yes;
+                (self.on_confirmation_fn)(self.button_state, borgtui);
+                self.is_dismissed = true;
+            }
+            (KeyCode::Char('n'), _) => {
+                self.button_state = ConfirmationButtonState::No;
+                (self.on_confirmation_fn)(self.button_state, borgtui);
+                self.is_dismissed = true;
+            }
+            _ => (),
+        }
+    }
+
+    fn on_tick(&self) -> BorgResult<()> {
+        Ok(())
+    }
+
+    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+        frame.render_widget(tui::widgets::Clear, area);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(90), Constraint::Min(1)].as_ref())
+            .split(area);
+        let (text_area, button_area) = (chunks[0], chunks[1]);
+        // Render message
+        let text_panel = Paragraph::new(self.text.clone())
+            .wrap(Wrap { trim: true })
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Confirmation Dialog"),
+            );
+        frame.render_widget(text_panel, text_area);
+        // Render Buttons
+        let selected = if matches!(self.button_state, ConfirmationButtonState::Yes) {
+            0
+        } else {
+            1
+        };
+        let buttons = Tabs::new([Spans::from("Yes (y)"), Spans::from("No (n)")].to_vec())
+            .block(Block::default().title("Options").borders(Borders::ALL))
+            .highlight_style(Style::default().fg(Color::Gray))
+            .select(selected);
+        frame.render_widget(buttons, button_area);
+    }
+
+    fn is_done(&self) -> bool {
+        self.is_dismissed
+    }
+}
+
 #[derive(Debug, Clone)]
 struct MessagePopup {
     error_message: String,
@@ -577,6 +690,7 @@ impl MessagePopup {
 enum Popup {
     AddFileToProfile(AddFileToProfilePopup),
     Mount(MountPopup),
+    ConfirmationDialog(ConfirmationPopup),
     Error(MessagePopup),
 }
 
@@ -586,6 +700,7 @@ impl Popup {
             Popup::AddFileToProfile(p) => p.handle_key(key, borgtui),
             Popup::Mount(m) => m.handle_key(key, borgtui),
             Popup::Error(e) => e.handle_key(key),
+            Popup::ConfirmationDialog(cd) => cd.handle_key(key, borgtui),
         }
     }
     fn on_tick(
@@ -598,6 +713,7 @@ impl Popup {
             Popup::AddFileToProfile(p) => p.on_tick(command_channel, directory_suggestions),
             Popup::Mount(m) => m.on_tick(command_channel, directory_suggestions, list_archives),
             Popup::Error(p) => p.on_tick(),
+            Popup::ConfirmationDialog(cd) => cd.on_tick(),
         }
     }
     fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
@@ -605,6 +721,7 @@ impl Popup {
             Popup::AddFileToProfile(p) => p.draw(frame, area),
             Popup::Mount(m) => m.draw(frame, area),
             Popup::Error(p) => p.draw(frame, area),
+            Popup::ConfirmationDialog(cd) => cd.draw(frame, area),
         }
     }
     fn is_done(&self) -> bool {
@@ -612,6 +729,7 @@ impl Popup {
             Popup::AddFileToProfile(p) => p.is_done(),
             Popup::Mount(m) => m.is_done(),
             Popup::Error(p) => p.is_done(),
+            Popup::ConfirmationDialog(cd) => cd.is_done(),
         }
     }
 }
@@ -634,6 +752,16 @@ impl From<MessagePopup> for Popup {
     }
 }
 
+impl From<ConfirmationPopup> for Popup {
+    fn from(value: ConfirmationPopup) -> Self {
+        Popup::ConfirmationDialog(value)
+    }
+}
+
+enum UserIntent {
+    UnmountAllRepos,
+}
+
 // TODO: Consider encapsulating these different states into their own struct
 pub(crate) struct BorgTui {
     tick_rate: Duration,
@@ -645,6 +773,7 @@ pub(crate) struct BorgTui {
     previous_ui_state: Option<UIState>,
     popup_stack: Vec<Popup>,
     currently_mounted_items: Option<Vec<(String, String)>>,
+    user_intent: Vec<UserIntent>,
     // This is not an enum field to make it easier to tab while a backup is in progress.
     backup_state: BackupState,
     list_archives_state: HashMap<String, ListRepository>,
@@ -673,6 +802,7 @@ impl BorgTui {
             previous_ui_state: None,
             popup_stack: Vec::new(),
             currently_mounted_items: None,
+            user_intent: Vec::new(),
             backup_state: BackupState::default(),
             list_archives_state: HashMap::new(),
             directory_suggestions: Vec::new(),
@@ -760,6 +890,27 @@ impl BorgTui {
             KeyCode::Char('M') => {
                 self.send_list_archives_command()?;
                 self.popup_stack.push(MountPopup::new(true).into());
+            }
+            KeyCode::Char('G') => {
+                if let Some(currently_mounted_items) = self.currently_mounted_items.as_ref() {
+                    let mut text_description = vec!["Would you like to unmount the following mounts?\n".to_string()];
+                    for (repo_or_archive, mountpoint) in currently_mounted_items {
+                        text_description.push(format!("- [{}] {}", mountpoint, repo_or_archive));
+                    }
+                    let text_description = text_description.join("\n");
+                    self.popup_stack.push(
+                        ConfirmationPopup::new(
+                            text_description,
+                            ConfirmationButtonState::Yes,
+                            Box::new(|state, borgtui| {
+                                if let ConfirmationButtonState::Yes = state {
+                                    borgtui.user_intent.push(UserIntent::UnmountAllRepos);
+                                }
+                            }),
+                        )
+                            .into(),
+                    );
+                }
             }
             KeyCode::Char('\\') => {
                 self.add_info("Pruning each repo...");
@@ -855,6 +1006,25 @@ impl BorgTui {
         let repo = self.profile.find_repo_from_mount_src(&repo_or_archive)?;
         self.command_channel
             .blocking_send(Command::Mount(repo, repo_or_archive, mountpoint))?;
+        Ok(())
+    }
+
+    fn unmount_all(&mut self) -> BorgResult<()> {
+        let mount_points: Vec<String> = self
+            .currently_mounted_items
+            .as_ref()
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|(_, mountpoint)| mountpoint.to_string())
+                    .collect()
+            })
+            .unwrap_or_else(Vec::new);
+        for mountpoint in mount_points {
+            self.command_channel
+                .blocking_send(Command::Unmount(mountpoint))?;
+        }
+        self.currently_mounted_items = None;
         Ok(())
     }
 
@@ -1076,6 +1246,12 @@ impl BorgTui {
                 &self.list_archives_state,
             )
         })?;
+        let user_intentions = self.user_intent.drain(..).collect::<Vec<_>>();
+        for user_intent in user_intentions {
+            match user_intent {
+                UserIntent::UnmountAllRepos => self.unmount_all()?,
+            }
+        }
         Ok(())
     }
 
@@ -1377,6 +1553,7 @@ impl BorgTui {
             Spans::from("• Press 'c' to compact"),
             Spans::from("• Press 'm' to mount"),
             Spans::from("• Press 'M' to mount a repo"),
+            Spans::from("• Press 'G' to unmount all"),
             Spans::from("• Press '\\' to prune"),
         ];
         let info_panel = Paragraph::new(text)

@@ -207,6 +207,26 @@ async fn handle_tui_command(
             });
             Ok(false)
         }
+        Command::Unmount(mountpoint) => {
+            // TODO: Properly join all of this.
+            tokio::spawn(async move {
+                match borg::umount(PathBuf::from(mountpoint.clone())).await {
+                    Ok(_) => {
+                        send_info!(
+                            command_response_send,
+                            format!("Successfully unmounted {}", mountpoint)
+                        )
+                    }
+                    Err(e) => {
+                        send_error!(
+                            command_response_send,
+                            format!("Failed to unmount: {}", e.to_string())
+                        );
+                    }
+                }
+            });
+            Ok(false)
+        }
         Command::Quit => Ok(true),
     }
 }
