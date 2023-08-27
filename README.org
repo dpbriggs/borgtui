@@ -139,7 +139,7 @@ BorgTUI supports restoring from backups by mounting an archive or repository and
 
 In the UI hit "m" or "M" to select an archive or a repository and the select a mount point. Use 'G' to unmount once you've restored from a backup.
 
-[[https://github.com/dpbriggs/borgtui/assets/5560032/288eb5de-68ed-416e-bbd9-a837bda5154e][https://github.com/dpbriggs/borgtui/assets/5560032/288eb5de-68ed-416e-bbd9-a837bda5154e]]
+[[./images/borgtui-mount-screen.png][./images/borgtui-mount-screen.png]]
 
 BorgTUI will automatically suggest "~/borg-mount" as a mount point and will create the folder when selected.
 If you exit the TUI without unmounting you can use the following command to unmount:
