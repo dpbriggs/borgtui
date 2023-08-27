@@ -133,7 +133,24 @@ borgtui list
 
 *** Restoring from a Backup
 
-Currently BorgTUI only supports mounting an archive or repository. First you need to select and archive to restore from:
+BorgTUI supports restoring from backups by mounting an archive or repository and allowing users to interactively restore from that.
+
+**** Restoring from the TUI
+
+In the UI hit "m" or "M" to select an archive or a repository and the select a mount point. Use 'G' to unmount once you've restored from a backup.
+
+[[https://github.com/dpbriggs/borgtui/assets/5560032/288eb5de-68ed-416e-bbd9-a837bda5154e][https://github.com/dpbriggs/borgtui/assets/5560032/288eb5de-68ed-416e-bbd9-a837bda5154e]]
+
+BorgTUI will automatically suggest "~/borg-mount" as a mount point and will create the folder when selected.
+If you exit the TUI without unmounting you can use the following command to unmount:
+
+#+begin_src bash
+  borgui umount <mointpoint>
+#+end_src
+
+**** Restoring from the CLI
+
+Currently BorgTUI supports mounting an archive or repository. First you need to select and archive to restore from:
 
 #+begin_src bash
 borgtui list
@@ -222,7 +239,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now borgtui-create-default.timer
 #+end_src
 
-By default the backup occurs every night at 9PM local time. Edit the timer unit in =~/.config/systemd/user/= to change it to a different date.
+By default the backup occurs every night at 9PM local time. Edit the timer unit in =~/.config/systemd/user/= to modify the schedule.
 BorgTUI will issue a notification that the backup completed.
 
 You can trigger backups manually with:
