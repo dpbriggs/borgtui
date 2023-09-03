@@ -124,6 +124,8 @@ pub(crate) enum Action {
     },
     /// List the archives in a directory
     List,
+    /// List the repositories associated with the profile.
+    ListRepos,
     /// Compact a borg repo
     Compact,
     /// Prune a borg repo

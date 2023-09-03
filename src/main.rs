@@ -1,4 +1,4 @@
-use std::path::{PathBuf, Path};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -28,7 +28,7 @@ mod types;
 const QUEUE_SIZE: usize = 1000;
 
 /// Open a file path in a detached GUI file manager.
-fn open_path_in_gui_file_manager<P: AsRef<Path>>(path: P) -> BorgResult<()>{
+fn open_path_in_gui_file_manager<P: AsRef<Path>>(path: P) -> BorgResult<()> {
     open::that_detached(path.as_ref())?;
     Ok(())
 }
@@ -491,6 +491,17 @@ async fn handle_action(
                 for archives in list_archives_per_repo.archives {
                     info!("{}::{}", repo, archives.name);
                 }
+            }
+            Ok(())
+        }
+        Action::ListRepos => {
+            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            for repo in profile.repositories() {
+                let mut extra_info = "";
+                if repo.disabled() {
+                    extra_info = " (DISABLED)";
+                }
+                println!("{}{}", repo, extra_info);
             }
             Ok(())
         }

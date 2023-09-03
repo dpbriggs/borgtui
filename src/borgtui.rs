@@ -893,7 +893,8 @@ impl BorgTui {
             }
             KeyCode::Char('G') => {
                 if let Some(currently_mounted_items) = self.currently_mounted_items.as_ref() {
-                    let mut text_description = vec!["Would you like to unmount the following mounts?\n".to_string()];
+                    let mut text_description =
+                        vec!["Would you like to unmount the following mounts?\n".to_string()];
                     for (repo_or_archive, mountpoint) in currently_mounted_items {
                         text_description.push(format!("- [{}] {}", mountpoint, repo_or_archive));
                     }
@@ -908,7 +909,7 @@ impl BorgTui {
                                 }
                             }),
                         )
-                            .into(),
+                        .into(),
                     );
                 }
             }
