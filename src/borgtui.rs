@@ -176,7 +176,7 @@ impl InputFieldWithSuggestions {
         self.cursor = Some(new_index);
         if let Some(selected_item) = self.suggestions.iter().nth(new_index).cloned() {
             self.input_buffer = selected_item;
-            // This is unnecessary but here to enforce us not scrambling the selection while a user is pathing.
+            // This is redundant but here to enforce us not scrambling the selection while a user is pathing.
             self.input_buffer_changed = false;
         }
     }
@@ -185,7 +185,7 @@ impl InputFieldWithSuggestions {
         &mut self,
         key: KeyEvent,
         completion_fn: CompletionFn,
-        validtion_fn: ValidationFn,
+        validation_fn: ValidationFn,
     ) -> Option<String>
     where
         CompletionFn: Fn(&BTreeSet<String>, &mut String) -> bool,
@@ -227,7 +227,7 @@ impl InputFieldWithSuggestions {
             }
             (KeyCode::Enter, _) => {
                 // TODO: Basic validation
-                let validated_successfully = validtion_fn(&self.suggestions, &self.input_buffer);
+                let validated_successfully = validation_fn(&self.suggestions, &self.input_buffer);
                 if validated_successfully {
                     Some(self.input_buffer.clone())
                 } else {
