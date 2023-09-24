@@ -143,10 +143,10 @@ pub(crate) struct PruneOptions {
 impl Default for PruneOptions {
     fn default() -> Self {
         Self {
-            keep_daily: NonZeroU16::new(4).unwrap(),
-            keep_weekly: NonZeroU16::new(12).unwrap(),
-            keep_monthly: NonZeroU16::new(12).unwrap(),
-            keep_yearly: NonZeroU16::new(12).unwrap(),
+            keep_daily: NonZeroU16::new(64).unwrap(),
+            keep_weekly: NonZeroU16::new(128).unwrap(),
+            keep_monthly: NonZeroU16::new(64).unwrap(),
+            keep_yearly: NonZeroU16::new(32).unwrap(),
         }
     }
 }
