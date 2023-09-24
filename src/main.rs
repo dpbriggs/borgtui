@@ -146,7 +146,12 @@ async fn handle_tui_command(
         }
         Command::Compact(repo) => {
             tokio::spawn(async move {
-                if let Err(e) = borg::compact(&repo).await {
+                send_info!(
+                    command_response_send,
+                    format!("Compacting {}", repo),
+                    "Failed to send start compacting info: {}"
+                );
+                if let Err(e) = borg::compact(&repo, command_response_send.clone()).await {
                     send_error!(command_response_send, format!("Failed to compact: {}", e));
                 } else {
                     send_info!(command_response_send, format!("Compacted {}", repo));
@@ -156,7 +161,12 @@ async fn handle_tui_command(
         }
         Command::Prune(repo, prune_options) => {
             tokio::spawn(async move {
-                if let Err(e) = borg::prune(&repo, prune_options).await {
+                send_info!(
+                    command_response_send,
+                    format!("Pruning {}", repo),
+                    "Failed to send start prune info: {}"
+                );
+                if let Err(e) = borg::prune(&repo, prune_options, command_response_send.clone()).await {
                     send_error!(command_response_send, format!("Failed to prune: {}", e))
                 } else {
                     send_info!(command_response_send, format!("Pruned {}", repo));
@@ -508,7 +518,7 @@ async fn handle_action(
         Action::Compact => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             for repo in profile.active_repositories() {
-                borg::compact(repo).await?;
+                borg::compact(repo, command_response_send.clone()).await?;
                 info!("Finished compacting {}", repo);
             }
             Ok(())
@@ -516,7 +526,7 @@ async fn handle_action(
         Action::Prune => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             for repo in profile.active_repositories() {
-                borg::prune(repo, profile.prune_options()).await?;
+                borg::prune(repo, profile.prune_options(), command_response_send.clone()).await?;
                 info!("Finished pruning {}", repo);
             }
             Ok(())

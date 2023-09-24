@@ -57,6 +57,30 @@ macro_rules! log_on_error {
 }
 pub(crate) use log_on_error;
 
+/// Send a CommandResponse::Info in a channel.
+macro_rules! take_repo_lock {
+    ($channel:expr, $repo:expr) => {
+        if $repo.lock.try_lock().is_err() {
+            send_info!(
+                $channel,
+                format!("Repo lock {} is already held, waiting...", $repo)
+            );
+        }
+        let _backup_guard = $repo.lock.lock().await;
+    };
+    ($channel:expr, $repo:expr, $message:expr) => {
+        if $repo.lock.try_lock().is_err() {
+            send_info!(
+                $channel,
+                format!($message, $repo)
+            );
+        }
+        let _backup_guard = $repo.lock.lock().await;
+    };
+}
+pub(crate) use take_repo_lock;
+
+
 #[derive(Debug, Default)]
 pub(crate) struct RingBuffer<T, const N: usize> {
     deque: VecDeque<T>,

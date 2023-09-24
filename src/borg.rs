@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc, time::Instant};
 use crate::{
     borgtui::CommandResponse,
     profiles::{Profile, Repository},
-    types::{log_on_error, send_error, send_info, BorgResult},
+    types::{log_on_error, send_error, send_info, BorgResult, take_repo_lock},
 };
 use anyhow::{anyhow, bail};
 use borgbackup::{
@@ -120,17 +120,12 @@ pub(crate) async fn create_backup_internal(
         let repo_name_clone = create_option.repository.clone();
         let progress_channel_task = progress_channel.clone();
         tokio::spawn(async move {
-            if repo.lock.try_lock().is_err() {
-                send_info!(
-                    progress_channel_task,
-                    format!("A backup is already in progress for {}, waiting...", repo)
-                );
-            }
-            let _backup_guard = repo.lock.lock().await;
+            take_repo_lock!(progress_channel_task, repo, "A backup is already in progress for {}, waiting...");
             send_info!(
                 progress_channel_task,
                 format!("Grabbed repo lock, starting the backup for {}", repo)
             );
+            // TODO: I think the UI doesn't update if you issue two backups in a row
             while let Some(progress) = create_progress_recv.recv().await {
                 let create_progress = BorgCreateProgress {
                     repository: repo_name_clone.clone(),
@@ -184,10 +179,11 @@ pub(crate) async fn list_archives(repo: &Repository) -> BorgResult<ListRepositor
         })
 }
 
-pub(crate) async fn compact(repo: &Repository) -> BorgResult<()> {
+pub(crate) async fn compact(repo: &Repository, progress_channel: mpsc::Sender<CommandResponse>) -> BorgResult<()> {
     let compact_options = CompactOptions {
         repository: repo.get_path(),
     };
+    take_repo_lock!(progress_channel, repo);
     borg_async::compact(&compact_options, &repo.common_options())
         .await
         .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.get_path(), e))
@@ -196,7 +192,9 @@ pub(crate) async fn compact(repo: &Repository) -> BorgResult<()> {
 pub(crate) async fn prune(
     repo: &Repository,
     prune_options: crate::profiles::PruneOptions,
+    progress_channel: mpsc::Sender<CommandResponse>,
 ) -> BorgResult<()> {
+    take_repo_lock!(progress_channel, repo);
     let mut compact_options = PruneOptions::new(repo.get_path());
     compact_options.passphrase = repo.get_passphrase()?;
     compact_options.keep_daily = Some(prune_options.keep_daily);
