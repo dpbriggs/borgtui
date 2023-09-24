@@ -35,11 +35,11 @@ pub(crate) struct Args {
 pub(crate) enum Action {
     /// Initialize a new borg repository and add it to a profile
     Init {
-        /// The profile to use. If not specified, the default profile
-        /// will be used.
-        #[arg(env, short = 'e', long)]
+        /// Password used for encrypting repositories. Please set it in the environment.
+        #[arg(env)]
         borg_passphrase: String,
 
+        // TODO: Use the same format as "set-password"
         /// Do not store the passphrase in the keyring
         ///
         /// Note that this implies you need to specify BORG_PASSPHRASE every
@@ -94,9 +94,8 @@ pub(crate) enum Action {
         #[arg(short, long, default_value = "true")]
         no_encryption: bool,
 
-        /// The profile to use. If not specified, the default profile
-        /// will be used.
-        #[arg(env, short, long)]
+        /// Password used for encrypting repositories. Please set it in the environment.
+        #[arg(env)]
         borg_passphrase: Option<String>,
 
         /// If true, store the encryption passphrase in cleartext in the
@@ -126,6 +125,24 @@ pub(crate) enum Action {
     List,
     /// List the repositories associated with the profile.
     ListRepos,
+    /// Set the password for a repository. By default it will be read
+    /// BORG_PASSPHRASE from the environment unless `--keyfile` is specified.
+    SetPassword {
+        /// Name of the repository (use `borgtui list-repos` to list)
+        repo: String,
+        /// Path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<PathBuf>,
+        /// If set, use no encryption with the repository (i.e. no BORG_PASSPHRASE)
+        #[arg(short, long)]
+        none: bool,
+        /// If set, store the BORG_PASSPHRASE in the configuration file.
+        #[arg(short, long)]
+        unsafe_raw_string_in_config_file: bool,
+        /// Password used for encrypting repositories. Please set it in the environment.
+        #[arg(env)]
+        borg_passphrase: Option<String>,
+    },
     /// Compact a borg repo
     Compact,
     /// Prune a borg repo

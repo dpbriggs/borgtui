@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc, time::Instant};
 use crate::{
     borgtui::CommandResponse,
     profiles::{Profile, Repository},
-    types::{log_on_error, send_error, send_info, BorgResult, take_repo_lock},
+    types::{log_on_error, send_error, send_info, take_repo_lock, BorgResult},
 };
 use anyhow::{anyhow, bail};
 use borgbackup::{
@@ -120,7 +120,11 @@ pub(crate) async fn create_backup_internal(
         let repo_name_clone = create_option.repository.clone();
         let progress_channel_task = progress_channel.clone();
         tokio::spawn(async move {
-            take_repo_lock!(progress_channel_task, repo, "A backup is already in progress for {}, waiting...");
+            take_repo_lock!(
+                progress_channel_task,
+                repo,
+                "A backup is already in progress for {}, waiting..."
+            );
             send_info!(
                 progress_channel_task,
                 format!("Grabbed repo lock, starting the backup for {}", repo)
@@ -179,7 +183,10 @@ pub(crate) async fn list_archives(repo: &Repository) -> BorgResult<ListRepositor
         })
 }
 
-pub(crate) async fn compact(repo: &Repository, progress_channel: mpsc::Sender<CommandResponse>) -> BorgResult<()> {
+pub(crate) async fn compact(
+    repo: &Repository,
+    progress_channel: mpsc::Sender<CommandResponse>,
+) -> BorgResult<()> {
     let compact_options = CompactOptions {
         repository: repo.get_path(),
     };

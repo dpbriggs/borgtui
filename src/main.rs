@@ -16,7 +16,7 @@ use walkdir::WalkDir;
 
 use crate::borgtui::{BorgTui, Command, CommandResponse};
 use crate::cli::Action;
-use crate::profiles::Profile;
+use crate::profiles::{Encryption, Profile};
 use crate::types::{send_error, send_info, BorgResult, PrettyBytes};
 
 mod borg;
@@ -166,7 +166,9 @@ async fn handle_tui_command(
                     format!("Pruning {}", repo),
                     "Failed to send start prune info: {}"
                 );
-                if let Err(e) = borg::prune(&repo, prune_options, command_response_send.clone()).await {
+                if let Err(e) =
+                    borg::prune(&repo, prune_options, command_response_send.clone()).await
+                {
                     send_error!(command_response_send, format!("Failed to prune: {}", e))
                 } else {
                     send_info!(command_response_send, format!("Pruned {}", repo));
@@ -513,6 +515,49 @@ async fn handle_action(
                 }
                 println!("{}{}", repo, extra_info);
             }
+            Ok(())
+        }
+        Action::SetPassword {
+            repo,
+            keyfile,
+            none,
+            unsafe_raw_string_in_config_file,
+            borg_passphrase,
+        } => {
+            let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            if keyfile.is_none() && borg_passphrase.is_none() {
+                bail!("Please set BORG_PASSPHRASE in your environment or specify --keyfile to use a key file");
+            }
+            if keyfile.is_some() && borg_passphrase.is_some() {
+                bail!("Both --keyfile and BORG_PASSPHRASE are set. Please set one or the other.");
+            }
+            let encryption = match (&keyfile, none, unsafe_raw_string_in_config_file) {
+                (Some(_), true, _) | (Some(_), _, true) | (_, true, true) => {
+                    bail!("Please only set one of  --keyfile, --none, and --unsafe-raw-string-in-config-file");
+                }
+                (Some(keyfile), _, _) => Encryption::Keyfile(keyfile.to_string_lossy().to_string()),
+                (_, true, _) => Encryption::None,
+                (_, _, true) => Encryption::Raw(
+                    borg_passphrase
+                        .clone()
+                        .ok_or_else(|| {
+                            anyhow!("Expected BORG_PASSPHRASE to be set when using raw encryption")
+                        })?
+                        .into(),
+                ),
+                _ => Encryption::Keyring,
+            };
+            profile.update_repository_password(
+                &repo,
+                encryption.clone(),
+                borg_passphrase.map(|s| s.into()),
+            )?;
+            profile.save_profile().await?;
+            info!(
+                "Updated password for {} (method: {:?})",
+                repo,
+                encryption.clone()
+            );
             Ok(())
         }
         Action::Compact => {

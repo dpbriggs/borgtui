@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::types::BorgResult;
+use anyhow::anyhow;
 use anyhow::{bail, Context};
 use borgbackup::common::{CommonOptions, CreateOptions, Pattern};
 use keyring::Entry;
@@ -45,6 +46,7 @@ pub(crate) enum Encryption {
     None,
     Raw(Passphrase),
     Keyring,
+    Keyfile(String),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -94,7 +96,36 @@ impl Repository {
                 .get_password()
                 .map_err(|e| anyhow::anyhow!("Failed to get passphrase from keyring: {}", e))
                 .map(Some),
+            // TODO: Properly support key files
+            Encryption::Keyfile(_f) => bail!("Keyfiles are not yet supported!"),
         }
+    }
+
+    pub(crate) fn set_passphrase(
+        &mut self,
+        encryption: Encryption,
+        borg_passphrase: Option<Passphrase>,
+    ) -> BorgResult<()> {
+        self.encryption = encryption;
+        if matches!(self.encryption, Encryption::Keyring) {
+            let entry = get_keyring_entry(&self.path)?;
+            let borg_passphrase = borg_passphrase.ok_or_else(|| {
+                anyhow!(
+                    "Keyring encryption is being used in {} but BORG_PASSPHRASE is unset!",
+                    self
+                )
+            })?;
+            entry
+                .set_password(&borg_passphrase.inner())
+                .with_context(|| {
+                    format!(
+                        "Failed to set password for repository {} in profile {}",
+                        &self.path, &self
+                    )
+                })?;
+            assert!(entry.get_password().is_ok());
+        }
+        Ok(())
     }
 
     /// If true, the repo has been disabled and actions will
@@ -395,6 +426,24 @@ impl Profile {
             None => Encryption::None,
         };
         self.repos.push(Repository::new(path, encryption, rsh));
+        Ok(())
+    }
+
+    pub(crate) fn update_repository_password(
+        &mut self,
+        repo_path: &str,
+        encryption: Encryption,
+        borg_passphrase: Option<Passphrase>,
+    ) -> BorgResult<()> {
+        let self_str = format!("{}", self); // used in error message below
+        let repo = self
+            .repos
+            .iter_mut()
+            .find(|repo| repo.path == repo_path)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Couldn't find repository {} in {}", repo_path, self_str)
+            })?;
+        repo.set_passphrase(encryption, borg_passphrase)?;
         Ok(())
     }
 

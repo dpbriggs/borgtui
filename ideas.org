@@ -55,10 +55,12 @@ CLOSED: [2023-08-26 Sat 15:32]
 CLOSED: [2023-08-26 Sat 20:56]
 ** DONE Add the ability to list repositories from the CLI
 CLOSED: [2023-09-03 Sun 10:50]
+** DONE Add the ability to set the borg passphrase from the CLI (=set-passphrase <repo> --keyfile=<path> | --borg_passphrase=<ENV|DIRECT>=)
+CLOSED: [2023-09-24 Sun 13:49]
 ** TODO Have a cursor in the profiles screen so you can interact and edit them
 ** TODO Have the ability to list archives per-repo
 ** TODO Add borg check support
 ** TODO Update the README to document the project
 ** TODO Add the ability to move the cursor when adding projects by CLI
 ** TODO Add a cursor in "InputFieldWithSuggestions" to help track which one is "selected"
-** TODO Add the ability to set the borg passphrase from the CLI (=set-passphrase <repo> --keyfile=<path> | --borg_passphrase=<ENV|DIRECT>=)
+** TODO Have a subcommand to make invalid states in setting the repo password unrepresentable
