@@ -64,3 +64,5 @@ CLOSED: [2023-09-24 Sun 13:49]
 ** TODO Add the ability to move the cursor when adding projects by CLI
 ** TODO Add a cursor in "InputFieldWithSuggestions" to help track which one is "selected"
 ** TODO Have a subcommand to make invalid states in setting the repo password unrepresentable
+** TODO Check if a file exists when using set-password with a keyfile
+** TODO Just print the repository name when using list-repos

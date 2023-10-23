@@ -125,7 +125,7 @@ pub(crate) enum Action {
     List,
     /// List the repositories associated with the profile.
     ListRepos,
-    /// Set the password for a repository. By default it will be read
+    /// Set the password for a repository. By default it will read
     /// BORG_PASSPHRASE from the environment unless `--keyfile` is specified.
     SetPassword {
         /// Name of the repository (use `borgtui list-repos` to list)

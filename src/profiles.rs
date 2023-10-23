@@ -9,6 +9,7 @@ use anyhow::anyhow;
 use anyhow::{bail, Context};
 use borgbackup::common::{CommonOptions, CreateOptions, Pattern};
 use keyring::Entry;
+use std::fs;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -97,7 +98,10 @@ impl Repository {
                 .map_err(|e| anyhow::anyhow!("Failed to get passphrase from keyring: {}", e))
                 .map(Some),
             // TODO: Properly support key files
-            Encryption::Keyfile(_f) => bail!("Keyfiles are not yet supported!"),
+            Encryption::Keyfile(filepath) => {
+                let passphrase = fs::read_to_string(filepath)?.trim().to_string();
+                Ok(Some(passphrase))
+            }
         }
     }
 
