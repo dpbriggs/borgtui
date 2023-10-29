@@ -2,7 +2,7 @@
 
 # This is a hacky script to assist in automating borgtui AUR package updates.
 
-cd /hdd2/programming/borgtui/archlinux/borgtui-git
+cd /home/david/programming/borgtui/archlinux/borgtui-git
 git pull origin
 makepkg -cf
 makepkg --printsrcinfo > .SRCINFO

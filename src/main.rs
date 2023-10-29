@@ -513,7 +513,7 @@ async fn handle_action(
                 if repo.disabled() {
                     extra_info = " (DISABLED)";
                 }
-                println!("{}{}", repo, extra_info);
+                println!("{}{}", &repo.path, extra_info);
             }
             Ok(())
         }
