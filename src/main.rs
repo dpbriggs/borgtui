@@ -480,10 +480,15 @@ async fn handle_action(
             info!("Added repository {} to profile {}", repository, profile);
             Ok(())
         }
-        Action::List => {
+        Action::List { repository } => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             let timeout_duration_secs = profile.action_timeout_seconds() as i64;
-            for repo in profile.active_repositories() {
+            for repo in profile.active_repositories().filter(|repo| {
+                repository
+                    .as_ref()
+                    .map(|rr| rr.as_str() == repo.path.as_str())
+                    .unwrap_or(true)
+            }) {
                 let list_archives_per_repo = match tokio::time::timeout(
                     Duration::seconds(timeout_duration_secs).to_std().unwrap(),
                     borg::list_archives(repo),

@@ -59,8 +59,9 @@ CLOSED: [2023-09-03 Sun 10:50]
 CLOSED: [2023-09-24 Sun 13:49]
 ** DONE Just print the repository name when using list-repos
 CLOSED: [2023-10-29 Sun 11:58]
+** DONE Have the ability to list archives per-repo
+CLOSED: [2023-10-29 Sun 13:03]
 ** TODO Have a cursor in the profiles screen so you can interact and edit them
-** TODO Have the ability to list archives per-repo
 ** TODO Add borg check support
 ** TODO Update the README to document the project
 ** TODO Add the ability to move the cursor when adding projects by CLI

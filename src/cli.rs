@@ -122,7 +122,10 @@ pub(crate) enum Action {
         mountpoint: PathBuf,
     },
     /// List the archives in a directory
-    List,
+    List {
+        /// If specified, only list archives from this repository.
+        repository: Option<String>,
+    },
     /// List the repositories associated with the profile.
     ListRepos,
     /// Set the password for a repository. By default it will read
