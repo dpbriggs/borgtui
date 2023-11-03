@@ -65,6 +65,8 @@ CLOSED: [2023-10-29 Sun 13:03]
 CLOSED: [2023-11-03 Fri 13:07]
 ** DONE Add borg check support
 CLOSED: [2023-11-03 Fri 13:57]
+** DONE Add systemd unit options for check
+CLOSED: [2023-11-03 Fri 14:10]
 ** TODO Have a cursor in the profiles screen so you can interact and edit them
 ** TODO Update the README to document the project
 ** TODO Add the ability to move the cursor when adding projects by CLI

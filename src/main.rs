@@ -364,31 +364,31 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
     }
 }
 
-fn generate_system_create_unit(profile_name: &str, timer: bool) -> String {
+fn generate_system_unit(profile_name: &str, timer: bool, action: &str, calendar: &str) -> String {
     if timer {
-        "[Unit]
-Description=Run borgtui create every day at 9PM
+        format!(
+            "[Unit]
+Description=Run BorgTUI {action} on a schedule (\"{calendar}\")
 
 [Timer]
-OnCalendar=*-*-* 21:00:00
+OnCalendar={calendar}
 Persistent=true
 
 [Install]
 WantedBy=timers.target"
-            .to_string()
+        )
     } else {
         format!(
             "[Unit]
-Description=BorgTui Create Backup for Profile `{profile_name}`
+Description=BorgTUI {action} for profile `{profile_name}`
 
 [Service]
 Type=simple
-ExecStart=borgtui -p {profile_name} create
+ExecStart=borgtui -p {profile_name} {action}
 
 [Install]
 WantedBy=default.target
-",
-            profile_name = profile_name,
+"
         )
     }
 }
@@ -616,16 +616,24 @@ async fn handle_action(
             install,
             install_path,
             timer,
+            check_unit,
         } => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
-            let systemd_unit_contents = generate_system_create_unit(profile.name(), timer);
+            let (action, calendar) = if check_unit {
+                ("check", "monthly")
+            } else {
+                ("create", "*-*-* 21:00:00")
+            };
+            let systemd_unit_contents =
+                generate_system_unit(profile.name(), timer, action, calendar);
             let extension = if timer { "timer" } else { "service" };
             if install || install_path.is_some() {
                 let home_dir = dirs::home_dir()
                     .ok_or_else(|| anyhow!("Couldn't find a home directory. Is $HOME set?"))?;
                 let install_path = install_path.unwrap_or_else(|| {
                     home_dir.join(format!(
-                        ".config/systemd/user/borgtui-create-{}.{}",
+                        ".config/systemd/user/borgtui-{}-{}.{}",
+                        action,
                         profile.name(),
                         extension
                     ))

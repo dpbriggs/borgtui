@@ -131,6 +131,23 @@ You can list archives in the TUI by hitting "l". You can also list backups by us
 borgtui list
 #+end_src
 
+*** Verifying Backups (Check)
+
+You can verify the integrity of backups by using `borgtui check`. This is currently only supported in CLI mode.
+
+#+begin_src bash
+borgtui list
+#+end_src
+
+You can create systemd units for verifying the backups by issuing:
+
+#+begin_src bash
+borgtui systemd-create-unit --install --check-unit
+borgtui systemd-create-unit --install --check-unit --timer
+systemctl --user daemon-reload
+systemctl --user enable --now borgtui-check-default.timer
+#+end_src
+
 *** Restoring from a Backup
 
 BorgTUI supports restoring from backups by mounting an archive or repository and allowing users to interactively restore from that.
@@ -192,14 +209,6 @@ You can compact a repo by pressing "c" in the TUI or by issuing:
 
 #+begin_src bash
 borgtui compact
-#+end_src
-
-*** TODO Checking
-
-Right now BorgTUI doesn't support checking so you can do that manually with =borg=. Just set =BORG_PASSPHRASE= in your environment and use
-
-#+begin_src bash
-borg check <path_to_repo>
 #+end_src
 
 *** Disabling a Repository

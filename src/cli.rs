@@ -171,10 +171,14 @@ pub(crate) enum Action {
         /// If true, save the unit under ~/.config/systemd/user/
         #[arg(long)]
         install: bool,
+        /// If set, make a check unit instead of a create unit.
+        #[arg(long)]
+        check_unit: bool,
         /// If set, save the save the unit to the path specified. This option implies
         /// --install
         #[arg(long)]
         install_path: Option<PathBuf>,
+        /// If set, create a timer unit instead of a service unit.
         #[arg(long)]
         timer: bool,
     },
