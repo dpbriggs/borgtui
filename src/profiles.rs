@@ -148,8 +148,12 @@ impl Repository {
         self.disabled
     }
 
-    pub(crate) fn get_path(&self) -> String {
+    pub(crate) fn path(&self) -> String {
         self.path.clone()
+    }
+
+    pub(crate) fn rsh(&self) -> Option<String> {
+        self.rsh.clone()
     }
 
     pub(crate) fn common_options(&self) -> CommonOptions {

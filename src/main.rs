@@ -572,6 +572,13 @@ async fn handle_action(
             }
             Ok(())
         }
+        Action::Check => {
+            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            for repo in profile.active_repositories() {
+                borg::check_with_notification(repo).await?;
+            }
+            Ok(())
+        }
         Action::AddProfile { name } => {
             let profile = match Profile::open_profile(&name).await {
                 Ok(Some(profile)) => bail!("Error: {} already exists", profile),

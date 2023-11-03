@@ -150,6 +150,10 @@ pub(crate) enum Action {
     Compact,
     /// Prune a borg repo
     Prune,
+    /// Verify the integrity of all active repositories. This usually takes a long time.
+    ///
+    /// It will display a notification and log on failure.
+    Check,
     /// Create a systemd unit to create a backup
     ///
     /// If `--install` is specified it will install the unit as a user unit under

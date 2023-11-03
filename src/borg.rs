@@ -168,18 +168,12 @@ pub(crate) async fn create_backup_internal(
 
 pub(crate) async fn list_archives(repo: &Repository) -> BorgResult<ListRepository> {
     let list_options = ListOptions {
-        repository: repo.get_path(),
+        repository: repo.path(),
         passphrase: repo.get_passphrase()?,
     };
     borg_async::list(&list_options, &repo.common_options())
         .await
-        .map_err(|e| {
-            anyhow!(
-                "Failed to list archives in repo {}: {:?}",
-                repo.get_path(),
-                e
-            )
-        })
+        .map_err(|e| anyhow!("Failed to list archives in repo {}: {:?}", repo.path(), e))
 }
 
 pub(crate) async fn compact(
@@ -187,12 +181,12 @@ pub(crate) async fn compact(
     progress_channel: mpsc::Sender<CommandResponse>,
 ) -> BorgResult<()> {
     let compact_options = CompactOptions {
-        repository: repo.get_path(),
+        repository: repo.path(),
     };
     take_repo_lock!(progress_channel, repo);
     borg_async::compact(&compact_options, &repo.common_options())
         .await
-        .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.get_path(), e))
+        .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.path(), e))
 }
 
 pub(crate) async fn prune(
@@ -201,7 +195,7 @@ pub(crate) async fn prune(
     progress_channel: mpsc::Sender<CommandResponse>,
 ) -> BorgResult<()> {
     take_repo_lock!(progress_channel, repo);
-    let mut compact_options = PruneOptions::new(repo.get_path());
+    let mut compact_options = PruneOptions::new(repo.path());
     compact_options.passphrase = repo.get_passphrase()?;
     compact_options.keep_daily = Some(prune_options.keep_daily);
     compact_options.keep_weekly = Some(prune_options.keep_weekly);
@@ -209,7 +203,7 @@ pub(crate) async fn prune(
     compact_options.keep_yearly = Some(prune_options.keep_yearly);
     borg_async::prune(&compact_options, &repo.common_options())
         .await
-        .map_err(|e| anyhow!("Failed to prune repo {}: {:?}", repo.get_path(), e))
+        .map_err(|e| anyhow!("Failed to prune repo {}: {:?}", repo.path(), e))
 }
 
 pub(crate) async fn mount(
@@ -235,7 +229,7 @@ pub(crate) async fn mount(
         }
     } else {
         MountSource::Repository {
-            name: repo.get_path(),
+            name: repo.path(),
             first_n_archives: None,
             last_n_archives: None,
             glob_archives: None,
@@ -246,7 +240,7 @@ pub(crate) async fn mount(
     mount_options.passphrase = repo.get_passphrase()?;
     borg_async::mount(&mount_options, &repo.common_options())
         .await
-        .map_err(|e| anyhow!("Failed to mount repo {}: {}", repo.get_path(), e))
+        .map_err(|e| anyhow!("Failed to mount repo {}: {}", repo.path(), e))
 }
 
 pub(crate) async fn umount(mount_point: PathBuf) -> BorgResult<()> {
@@ -256,4 +250,33 @@ pub(crate) async fn umount(mount_point: PathBuf) -> BorgResult<()> {
     )
     .await
     .map_err(|e| anyhow!("Failed to umount path {:?}: {}", mount_point, e))
+}
+
+pub(crate) async fn check_with_notification(repo: &Repository) -> BorgResult<()> {
+    let repo_path = repo.path();
+    let rsh = repo.rsh();
+    let passphrase = repo.get_passphrase()?;
+    let exit = tokio::process::Command::new("borg")
+        .env("BORG_PASSPHRASE", passphrase.unwrap_or_default())
+        .args(
+            rsh.map(|r| vec!["--rsh".to_string(), r])
+                .unwrap_or_default(),
+        )
+        .arg("--progress")
+        .arg("check")
+        .arg(repo_path)
+        .spawn()?
+        .wait()
+        .await?;
+    if !exit.success() {
+        error!("Verification failed for repository: {}", repo);
+        Notification::new()
+            .summary(&format!("Verification Failed for {}!", repo))
+            .body("Please check BorgTUI's logs for more information.")
+            .show_async()
+            .await?;
+    } else {
+        info!("Verification succeeded for repository: {}", repo);
+    }
+    Ok(())
 }

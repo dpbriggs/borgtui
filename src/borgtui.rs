@@ -407,7 +407,7 @@ impl MountPopup {
                         p.push("borg-mount");
                         p.to_string_lossy().to_string()
                     })
-                    .unwrap_or_else(String::new),
+                    .unwrap_or_default(),
             );
         }
     }
@@ -864,7 +864,7 @@ impl BorgTui {
             KeyCode::Char('a') => {
                 let initial_dir = dirs::home_dir()
                     .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(String::new);
+                    .unwrap_or_default();
                 self.popup_stack
                     .push(AddFileToProfilePopup::new(initial_dir).into());
             }
@@ -1020,7 +1020,7 @@ impl BorgTui {
                     .map(|(_, mountpoint)| mountpoint.to_string())
                     .collect()
             })
-            .unwrap_or_else(Vec::new);
+            .unwrap_or_default();
         for mountpoint in mount_points {
             self.command_channel
                 .blocking_send(Command::Unmount(mountpoint))?;
@@ -1138,7 +1138,7 @@ impl BorgTui {
         self.backup_state
             .recently_backed_up_files
             .entry(repo)
-            .or_insert_with(RingBuffer::new)
+            .or_default()
             .push_back(path);
     }
 
@@ -1436,7 +1436,7 @@ impl BorgTui {
                             })
                             .collect::<Vec<_>>()
                     })
-                    .unwrap_or_else(Vec::new);
+                    .unwrap_or_default();
                 if let Some(backup_stat) = self.latest_stats_for_repo(&repo.path) {
                     items.insert(
                         0,

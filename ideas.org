@@ -63,8 +63,9 @@ CLOSED: [2023-10-29 Sun 11:58]
 CLOSED: [2023-10-29 Sun 13:03]
 ** DONE Use Passphrase instead of String everywhere
 CLOSED: [2023-11-03 Fri 13:07]
+** DONE Add borg check support
+CLOSED: [2023-11-03 Fri 13:57]
 ** TODO Have a cursor in the profiles screen so you can interact and edit them
-** TODO Add borg check support
 ** TODO Update the README to document the project
 ** TODO Add the ability to move the cursor when adding projects by CLI
 ** TODO Add a cursor in "InputFieldWithSuggestions" to help track which one is "selected"
