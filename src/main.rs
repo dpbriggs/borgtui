@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -7,11 +7,12 @@ use anyhow::{anyhow, bail, Context};
 use borgbackup::asynchronous::CreateProgress;
 use chrono::Duration;
 use notify::Watcher;
+use notify_rust::Notification;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
-use types::{log_on_error, DirectoryFinder};
+use types::{log_on_error, DirectoryFinder, FAILURE_NOTIFICATION_DURATION};
 use walkdir::WalkDir;
 
 use crate::borgtui::{BorgTui, Command, CommandResponse};
@@ -574,9 +575,39 @@ async fn handle_action(
         }
         Action::Check => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let check_semaphore = Arc::new(Semaphore::new(0));
+            let successful = Arc::new(AtomicBool::new(true));
             for repo in profile.active_repositories() {
-                borg::check_with_notification(repo).await?;
+                let successful_clone = successful.clone();
+                let check_semaphore_clone = check_semaphore.clone();
+                let repo_clone = repo.clone();
+                // TODO: Should we hold the repository lock?
+                tokio::spawn(async move {
+                    let res = match borg::check_with_notification(&repo_clone).await {
+                        Ok(res) => res,
+                        Err(e) => {
+                            error!("Verification failed: {e}");
+                            false
+                        }
+                    };
+                    successful_clone.fetch_and(res, Ordering::SeqCst);
+                    check_semaphore_clone.add_permits(1);
+                });
             }
+            let _ = check_semaphore
+                .acquire_many(profile.num_active_repositories() as u32)
+                .await?;
+            let title = if successful.load(Ordering::SeqCst) {
+                "Backup Verification Successful!"
+            } else {
+                "Backup Verification FAILED!"
+            };
+            Notification::new()
+                .summary(title)
+                .body(&format!("Profile: {}", profile.name()))
+                .timeout(FAILURE_NOTIFICATION_DURATION)
+                .show_async()
+                .await?;
             Ok(())
         }
         Action::AddProfile { name } => {

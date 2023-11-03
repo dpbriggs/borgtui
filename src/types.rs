@@ -6,6 +6,8 @@ use std::{
     path::PathBuf,
 };
 
+pub(crate) const FAILURE_NOTIFICATION_DURATION: i32 = 60_000; // 1 min
+
 /// Send a CommandResponse::Info in a channel.
 macro_rules! send_info {
     ($channel:expr, $info_message:expr) => {

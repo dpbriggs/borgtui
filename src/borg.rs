@@ -3,7 +3,10 @@ use std::{path::PathBuf, sync::Arc, time::Instant};
 use crate::{
     borgtui::CommandResponse,
     profiles::{Passphrase, Profile, Repository},
-    types::{log_on_error, send_error, send_info, take_repo_lock, BorgResult},
+    types::{
+        log_on_error, send_error, send_info, take_repo_lock, BorgResult,
+        FAILURE_NOTIFICATION_DURATION,
+    },
 };
 use anyhow::{anyhow, bail};
 use borgbackup::{
@@ -252,7 +255,7 @@ pub(crate) async fn umount(mount_point: PathBuf) -> BorgResult<()> {
     .map_err(|e| anyhow!("Failed to umount path {:?}: {}", mount_point, e))
 }
 
-pub(crate) async fn check_with_notification(repo: &Repository) -> BorgResult<()> {
+pub(crate) async fn check_with_notification(repo: &Repository) -> BorgResult<bool> {
     let repo_path = repo.path();
     let rsh = repo.rsh();
     let passphrase = repo.get_passphrase()?;
@@ -273,10 +276,11 @@ pub(crate) async fn check_with_notification(repo: &Repository) -> BorgResult<()>
         Notification::new()
             .summary(&format!("Verification Failed for {}!", repo))
             .body("Please check BorgTUI's logs for more information.")
+            .timeout(FAILURE_NOTIFICATION_DURATION)
             .show_async()
             .await?;
     } else {
         info!("Verification succeeded for repository: {}", repo);
     }
-    Ok(())
+    Ok(exit.success())
 }

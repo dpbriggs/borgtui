@@ -73,3 +73,4 @@ CLOSED: [2023-11-03 Fri 14:10]
 ** TODO Add a cursor in "InputFieldWithSuggestions" to help track which one is "selected"
 ** TODO Have a subcommand to make invalid states in setting the repo password unrepresentable
 ** TODO Check if a file exists when using set-password with a keyfile
+** TODO Fix how notifications are handled in check (there's several in different places)

@@ -310,6 +310,10 @@ impl Profile {
         self.repositories().iter().filter(|repo| !repo.disabled)
     }
 
+    pub(crate) fn num_active_repositories(&self) -> usize {
+        self.active_repositories().count()
+    }
+
     pub(crate) fn name(&self) -> &str {
         &self.name
     }
