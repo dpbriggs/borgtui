@@ -5,7 +5,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, shells};
 use tokio::io::AsyncWriteExt;
 
-use crate::types::BorgResult;
+use crate::{profiles::Passphrase, types::BorgResult};
 
 const ABOUT: &str = "A TUI and CLI to help automate borg backups :^)";
 
@@ -37,7 +37,7 @@ pub(crate) enum Action {
     Init {
         /// Password used for encrypting repositories. Please set it in the environment.
         #[arg(env)]
-        borg_passphrase: String,
+        borg_passphrase: Passphrase,
 
         // TODO: Use the same format as "set-password"
         /// Do not store the passphrase in the keyring
@@ -96,7 +96,7 @@ pub(crate) enum Action {
 
         /// Password used for encrypting repositories. Please set it in the environment.
         #[arg(env)]
-        borg_passphrase: Option<String>,
+        borg_passphrase: Option<Passphrase>,
 
         /// If true, store the encryption passphrase in cleartext in the
         /// configuration file. This is not recommended.
@@ -144,7 +144,7 @@ pub(crate) enum Action {
         unsafe_raw_string_in_config_file: bool,
         /// Password used for encrypting repositories. Please set it in the environment.
         #[arg(env)]
-        borg_passphrase: Option<String>,
+        borg_passphrase: Option<Passphrase>,
     },
     /// Compact a borg repo
     Compact,

@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use crate::{
     borgtui::CommandResponse,
-    profiles::{Profile, Repository},
+    profiles::{Passphrase, Profile, Repository},
     types::{log_on_error, send_error, send_info, take_repo_lock, BorgResult},
 };
 use anyhow::{anyhow, bail};
@@ -35,13 +35,12 @@ pub(crate) struct BorgCreateProgress {
     pub(crate) create_progress: borg_async::CreateProgress,
 }
 
-// TODO: Make a wrapper type for the passphrase
 pub(crate) async fn init(
-    borg_passphrase: String,
+    borg_passphrase: Passphrase,
     repo_loc: String,
     rsh: Option<String>,
 ) -> BorgResult<()> {
-    let init_options = InitOptions::new(repo_loc, EncryptionMode::Repokey(borg_passphrase));
+    let init_options = InitOptions::new(repo_loc, EncryptionMode::Repokey(borg_passphrase.inner()));
     borg_async::init(
         &init_options,
         &CommonOptions {

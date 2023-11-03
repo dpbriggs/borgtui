@@ -21,6 +21,10 @@ impl Passphrase {
     pub(crate) fn inner(&self) -> String {
         self.0.clone()
     }
+
+    pub(crate) fn inner_ref(&self) -> &str {
+        &self.0
+    }
 }
 
 impl std::fmt::Debug for Passphrase {
@@ -38,6 +42,12 @@ impl AsRef<str> for Passphrase {
 impl From<String> for Passphrase {
     fn from(value: String) -> Self {
         Self(value)
+    }
+}
+
+impl From<&str> for Passphrase {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
     }
 }
 
@@ -403,7 +413,7 @@ impl Profile {
     pub(crate) fn add_repository(
         &mut self,
         path: String,
-        borg_passphrase: Option<String>,
+        borg_passphrase: Option<Passphrase>,
         rsh: Option<String>,
         do_not_store_in_keyring: bool,
         store_passphase_in_cleartext: bool,
@@ -412,15 +422,17 @@ impl Profile {
             Some(borg_passphrase) => {
                 // TODO: Refactor this into a separate function
                 if store_passphase_in_cleartext {
-                    Encryption::Raw(Passphrase(borg_passphrase))
+                    Encryption::Raw(borg_passphrase)
                 } else if !do_not_store_in_keyring {
                     let entry = get_keyring_entry(&path)?;
-                    entry.set_password(&borg_passphrase).with_context(|| {
-                        format!(
-                            "Failed to set password for repository {} in profile {}",
-                            path, &self
-                        )
-                    })?;
+                    entry
+                        .set_password(borg_passphrase.inner_ref())
+                        .with_context(|| {
+                            format!(
+                                "Failed to set password for repository {} in profile {}",
+                                path, &self
+                            )
+                        })?;
                     assert!(entry.get_password().is_ok());
                     Encryption::Keyring
                 } else {

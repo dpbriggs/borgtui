@@ -61,6 +61,8 @@ CLOSED: [2023-09-24 Sun 13:49]
 CLOSED: [2023-10-29 Sun 11:58]
 ** DONE Have the ability to list archives per-repo
 CLOSED: [2023-10-29 Sun 13:03]
+** DONE Use Passphrase instead of String everywhere
+CLOSED: [2023-11-03 Fri 13:07]
 ** TODO Have a cursor in the profiles screen so you can interact and edit them
 ** TODO Add borg check support
 ** TODO Update the README to document the project

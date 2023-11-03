@@ -542,21 +542,12 @@ async fn handle_action(
                 }
                 (Some(keyfile), _, _) => Encryption::Keyfile(keyfile.to_string_lossy().to_string()),
                 (_, true, _) => Encryption::None,
-                (_, _, true) => Encryption::Raw(
-                    borg_passphrase
-                        .clone()
-                        .ok_or_else(|| {
-                            anyhow!("Expected BORG_PASSPHRASE to be set when using raw encryption")
-                        })?
-                        .into(),
-                ),
+                (_, _, true) => Encryption::Raw(borg_passphrase.clone().ok_or_else(|| {
+                    anyhow!("Expected BORG_PASSPHRASE to be set when using raw encryption")
+                })?),
                 _ => Encryption::Keyring,
             };
-            profile.update_repository_password(
-                &repo,
-                encryption.clone(),
-                borg_passphrase.map(|s| s.into()),
-            )?;
+            profile.update_repository_password(&repo, encryption.clone(), borg_passphrase)?;
             profile.save_profile().await?;
             info!(
                 "Updated password for {} (method: {:?})",
