@@ -692,7 +692,6 @@ impl MessagePopup {
     }
 }
 
-// TODO: Use enum dispatch or related!
 #[derive(Debug)]
 enum Popup {
     AddFileToProfile(AddFileToProfilePopup),
