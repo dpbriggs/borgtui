@@ -133,17 +133,19 @@ struct InputFieldWithSuggestions {
     suggestions: BTreeSet<String>,
     input_buffer: String,
     input_buffer_changed: bool,
+    content_title: String,
     is_editing: bool,
     is_done: bool,
     cursor: Option<usize>,
 }
 
 impl InputFieldWithSuggestions {
-    fn new(initial_input_text: String) -> Self {
+    fn new(initial_input_text: String, content_title: String) -> Self {
         InputFieldWithSuggestions {
             suggestions: BTreeSet::new(),
             input_buffer_changed: !initial_input_text.is_empty(),
             input_buffer: initial_input_text,
+            content_title,
             is_editing: true,
             is_done: false,
             cursor: None,
@@ -285,8 +287,11 @@ impl InputFieldWithSuggestions {
             .map(|item| ListItem::new(item.to_string()))
             .collect();
         // TODO Add the ability to change "Content" to be configurable from the caller.
-        let content =
-            List::new(list_items).block(Block::default().borders(Borders::ALL).title("Content"));
+        let content = List::new(list_items).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(self.content_title.clone()),
+        );
         frame.render_widget(content, top_area);
 
         // TODO: Add a "red" state when validation fails
@@ -328,7 +333,10 @@ impl MountPopup {
         };
         MountPopup {
             state,
-            input: InputFieldWithSuggestions::new("".into()),
+            input: InputFieldWithSuggestions::new(
+                "".into(),
+                "Archive or Repo to Mount".to_string(),
+            ),
             repo_or_archive: None,
             num_list_archives: 0,
             is_done: false,
@@ -408,6 +416,7 @@ impl MountPopup {
                         p.to_string_lossy().to_string()
                     })
                     .unwrap_or_default(),
+                "Mount Point".to_string(),
             );
         }
     }
@@ -481,7 +490,7 @@ impl AddFileToProfilePopup {
     fn new(initial_text: String) -> Self {
         AddFileToProfilePopup {
             path_successfully_added: Arc::new(AtomicBool::new(false)),
-            input: InputFieldWithSuggestions::new(initial_text),
+            input: InputFieldWithSuggestions::new(initial_text, "Filepath to Add".to_string()),
         }
     }
 
@@ -840,7 +849,6 @@ impl BorgTui {
         match key.code {
             KeyCode::Char('q') => {
                 self.done = true;
-                // TODO: Block on any remaining borg backups
                 self.send_quit_command()?;
                 return Ok(());
             }
