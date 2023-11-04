@@ -1282,30 +1282,24 @@ impl BorgTui {
         })
     }
 
-    // TODO: Make this _much_ nicer. Do we even need a min?
     fn get_min_and_max_stat_value(
         &self,
         metric_fn: &dyn Fn(&BackupStat) -> f64,
     ) -> Option<(f64, f64)> {
-        let mut min = f64::INFINITY;
-        let mut max = -1.0;
-        for repo in self.profile.active_repositories() {
-            if let Some(ring_buffer) = self.backup_state.backup_stats.get(&repo.path) {
-                ring_buffer.iter().map(metric_fn).for_each(|value| {
-                    if value < min {
-                        min = value;
-                    }
-                    if value > max {
-                        max = value;
-                    }
-                });
-            }
-        }
-        if min == f64::INFINITY || max == -1.0 {
-            None
-        } else {
-            Some((min, max))
-        }
+        let mut stats_iter = self
+            .profile
+            .active_repositories()
+            .filter_map(|repo| self.backup_state.backup_stats.get(&repo.path))
+            .map(|ring_buffer| ring_buffer.iter().map(metric_fn))
+            .flatten();
+        let first_stat = stats_iter.next()?;
+        let mut min = first_stat;
+        let mut max = first_stat;
+        stats_iter.for_each(|value| {
+            min = f64::min(min, value);
+            max = f64::max(max, value);
+        });
+        Some((min, max))
     }
 
     fn draw_backup_chart<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
