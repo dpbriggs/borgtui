@@ -90,9 +90,7 @@ impl BackupStat {
 }
 
 #[derive(Default)]
-// TODO: Move each associated member to their own struct
 struct BackupState {
-    // TODO: Use an actual struct for this!
     backup_stats: HashMap<String, RingBuffer<BackupStat, BACKUP_STATS_RETENTION_AMOUNT>>,
     recently_backed_up_files: HashMap<String, RingBuffer<String, NUM_RECENTLY_BACKED_UP_FILES>>,
     finished_backing_up: HashSet<String>,
@@ -1011,7 +1009,6 @@ impl BorgTui {
     }
 
     fn mount(&mut self, repo_or_archive: String, mountpoint: String) -> BorgResult<()> {
-        // TODO: Actually retain repository information and use that
         let repo = self.profile.find_repo_from_mount_src(&repo_or_archive)?;
         self.command_channel
             .blocking_send(Command::Mount(repo, repo_or_archive, mountpoint))?;
