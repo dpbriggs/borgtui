@@ -742,7 +742,6 @@ fn main() -> BorgResult<()> {
                     };
                     handle.await
                 }
-                // TODO: Is failing to join here a bad idea?
                 None => {
                     match setup_tui(args.borgtui_profile, args.watch_profile).await {
                         Ok(join_handle) => tui_join_handle = Some(join_handle),
