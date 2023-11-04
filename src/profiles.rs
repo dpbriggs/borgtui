@@ -51,7 +51,6 @@ impl From<&str> for Passphrase {
     }
 }
 
-// TODO: This debug impl is a security concern.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) enum Encryption {
     None,
