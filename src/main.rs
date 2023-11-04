@@ -589,8 +589,8 @@ async fn handle_action(
                 let successful_clone = successful.clone();
                 let check_semaphore_clone = check_semaphore.clone();
                 let repo_clone = repo.clone();
-                // TODO: Should we hold the repository lock?
                 tokio::spawn(async move {
+                    let _guard = repo_clone.lock.lock().await;
                     let res = match borg::check_with_notification(&repo_clone).await {
                         Ok(res) => res,
                         Err(e) => {
