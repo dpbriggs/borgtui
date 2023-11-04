@@ -10,7 +10,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use tokio::sync::mpsc::{Receiver, Sender};
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use tui::layout::Rect;
 use tui::style::{Color, Modifier, Style};
 use tui::symbols;
@@ -18,6 +18,7 @@ use tui::text::{Span, Spans};
 use tui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, Tabs, Wrap};
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::io::Stdout;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -321,7 +322,6 @@ struct MountPopup {
     num_list_archives: usize,
     is_done: bool,
 }
-
 impl MountPopup {
     fn new(is_repo: bool) -> Self {
         let state = if is_repo {
@@ -340,7 +340,6 @@ impl MountPopup {
             is_done: false,
         }
     }
-
     fn update_list_archive_suggestions(&mut self, list_archives: &HashMap<String, ListRepository>) {
         let num_list_archives = list_archives
             .values()
@@ -357,7 +356,51 @@ impl MountPopup {
                 }));
         }
     }
+    fn handle_key_repo_or_archive(&mut self, key: KeyEvent) {
+        let res = self.input.handle_key(
+            key,
+            |suggestions, input_buffer| {
+                let mut input_buffer_changed = false;
+                if let Some(res) = suggestions.range(input_buffer.clone()..).next() {
+                    if res != input_buffer {
+                        *input_buffer = res.clone();
+                        input_buffer_changed = true;
+                    }
+                }
+                input_buffer_changed
+            },
+            |suggestions, input_buffer| suggestions.contains(input_buffer),
+        );
+        if let Some(value) = res {
+            self.repo_or_archive = Some(value);
+            self.state = MountPopupSelectionState::MountPoint;
+            self.input = InputFieldWithSuggestions::new(
+                dirs::home_dir()
+                    .map(|mut p| {
+                        p.push("borg-mount");
+                        p.to_string_lossy().to_string()
+                    })
+                    .unwrap_or_default(),
+                "Mount Point".to_string(),
+            );
+        }
+    }
+    fn handle_key_mount_point_selection(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
+        let res = self.input.handle_key(
+            key,
+            filter_directory_suggestions,
+            |_suggestions, _input_buffer| true,
+        );
+        if let Some(mountpoint) = res {
+            if let Err(e) = borgtui.mount(self.repo_or_archive.clone().unwrap(), mountpoint) {
+                borgtui.add_error(format!("{}", e));
+            }
+            self.is_done = true;
+        }
+    }
+}
 
+impl Popup for MountPopup {
     fn on_tick(
         &mut self,
         command_channel: &Sender<Command>,
@@ -389,50 +432,6 @@ impl MountPopup {
         Ok(())
     }
 
-    fn handle_key_repo_or_archive(&mut self, key: KeyEvent) {
-        let res = self.input.handle_key(
-            key,
-            |suggestions, input_buffer| {
-                let mut input_buffer_changed = false;
-                if let Some(res) = suggestions.range(input_buffer.clone()..).next() {
-                    if res != input_buffer {
-                        *input_buffer = res.clone();
-                        input_buffer_changed = true;
-                    }
-                }
-                input_buffer_changed
-            },
-            |suggestions, input_buffer| suggestions.contains(input_buffer),
-        );
-        if let Some(value) = res {
-            self.repo_or_archive = Some(value);
-            self.state = MountPopupSelectionState::MountPoint;
-            self.input = InputFieldWithSuggestions::new(
-                dirs::home_dir()
-                    .map(|mut p| {
-                        p.push("borg-mount");
-                        p.to_string_lossy().to_string()
-                    })
-                    .unwrap_or_default(),
-                "Mount Point".to_string(),
-            );
-        }
-    }
-
-    fn handle_key_mount_point_selection(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
-        let res = self.input.handle_key(
-            key,
-            filter_directory_suggestions,
-            |_suggestions, _input_buffer| true,
-        );
-        if let Some(mountpoint) = res {
-            if let Err(e) = borgtui.mount(self.repo_or_archive.clone().unwrap(), mountpoint) {
-                borgtui.add_error(format!("{}", e));
-            }
-            self.is_done = true;
-        }
-    }
-
     fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
         let is_repo_or_archive_selection = matches!(
             &self.state,
@@ -449,7 +448,7 @@ impl MountPopup {
         self.input.is_done() || self.is_done
     }
 
-    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+    fn draw(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, area: Rect) {
         self.input.draw(frame, area, |suggestions, input_buffer| {
             suggestions.contains(input_buffer)
         })
@@ -491,7 +490,9 @@ impl AddFileToProfilePopup {
             input: InputFieldWithSuggestions::new(initial_text, "Filepath to Add".to_string()),
         }
     }
+}
 
+impl Popup for AddFileToProfilePopup {
     fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
         let res = self.input.handle_key(
             key,
@@ -514,6 +515,7 @@ impl AddFileToProfilePopup {
         &mut self,
         command_channel: &Sender<Command>,
         directory_suggestions: &[PathBuf],
+        _list_archives: &HashMap<String, ListRepository>,
     ) -> BorgResult<()> {
         self.input.update_suggestions(
             directory_suggestions
@@ -533,7 +535,7 @@ impl AddFileToProfilePopup {
         self.input.is_done() || self.path_successfully_added.load(Ordering::SeqCst)
     }
 
-    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+    fn draw(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, area: Rect) {
         self.input.draw(frame, area, |_, input_buffer| {
             std::fs::metadata(input_buffer).is_ok()
         })
@@ -587,7 +589,9 @@ impl ConfirmationPopup {
             on_confirmation_fn,
         }
     }
+}
 
+impl Popup for ConfirmationPopup {
     fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
         match (key.code, key.modifiers) {
             (KeyCode::Char('g'), KeyModifiers::CONTROL) | (KeyCode::Char('q'), _) => {
@@ -614,11 +618,16 @@ impl ConfirmationPopup {
         }
     }
 
-    fn on_tick(&self) -> BorgResult<()> {
+    fn on_tick(
+        &mut self,
+        _command_channel: &Sender<Command>,
+        _directory_suggestions: &[PathBuf],
+        _list_archives: &HashMap<String, ListRepository>,
+    ) -> BorgResult<()> {
         Ok(())
     }
 
-    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+    fn draw(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, area: Rect) {
         frame.render_widget(tui::widgets::Clear, area);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -665,8 +674,9 @@ impl MessagePopup {
             is_dismissed: false,
         }
     }
-
-    fn handle_key(&mut self, key: KeyEvent) {
+}
+impl Popup for MessagePopup {
+    fn handle_key(&mut self, key: KeyEvent, _borgtui: &mut BorgTui) {
         match (key.code, key.modifiers) {
             (KeyCode::Char('g'), KeyModifiers::CONTROL) | (KeyCode::Char('q'), _) => {
                 self.is_dismissed = true;
@@ -675,7 +685,12 @@ impl MessagePopup {
         }
     }
 
-    fn on_tick(&self) -> BorgResult<()> {
+    fn on_tick(
+        &mut self,
+        _command_channel: &Sender<Command>,
+        _directory_suggestions: &[PathBuf],
+        _list_archives: &HashMap<String, ListRepository>,
+    ) -> BorgResult<()> {
         Ok(())
     }
 
@@ -683,7 +698,7 @@ impl MessagePopup {
         self.is_dismissed
     }
 
-    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+    fn draw(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, area: Rect) {
         frame.render_widget(tui::widgets::Clear, area);
         let input_panel = Paragraph::new(self.error_message.clone())
             .wrap(Wrap { trim: true })
@@ -692,76 +707,16 @@ impl MessagePopup {
     }
 }
 
-#[derive(Debug)]
-enum Popup {
-    AddFileToProfile(AddFileToProfilePopup),
-    Mount(MountPopup),
-    ConfirmationDialog(ConfirmationPopup),
-    Error(MessagePopup),
-}
-
-impl Popup {
-    fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
-        match self {
-            Popup::AddFileToProfile(p) => p.handle_key(key, borgtui),
-            Popup::Mount(m) => m.handle_key(key, borgtui),
-            Popup::Error(e) => e.handle_key(key),
-            Popup::ConfirmationDialog(cd) => cd.handle_key(key, borgtui),
-        }
-    }
+trait Popup {
+    fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui);
     fn on_tick(
         &mut self,
         command_channel: &Sender<Command>,
         directory_suggestions: &[PathBuf],
         list_archives: &HashMap<String, ListRepository>,
-    ) -> BorgResult<()> {
-        match self {
-            Popup::AddFileToProfile(p) => p.on_tick(command_channel, directory_suggestions),
-            Popup::Mount(m) => m.on_tick(command_channel, directory_suggestions, list_archives),
-            Popup::Error(p) => p.on_tick(),
-            Popup::ConfirmationDialog(cd) => cd.on_tick(),
-        }
-    }
-    fn draw<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
-        match self {
-            Popup::AddFileToProfile(p) => p.draw(frame, area),
-            Popup::Mount(m) => m.draw(frame, area),
-            Popup::Error(p) => p.draw(frame, area),
-            Popup::ConfirmationDialog(cd) => cd.draw(frame, area),
-        }
-    }
-    fn is_done(&self) -> bool {
-        match self {
-            Popup::AddFileToProfile(p) => p.is_done(),
-            Popup::Mount(m) => m.is_done(),
-            Popup::Error(p) => p.is_done(),
-            Popup::ConfirmationDialog(cd) => cd.is_done(),
-        }
-    }
-}
-
-impl From<AddFileToProfilePopup> for Popup {
-    fn from(value: AddFileToProfilePopup) -> Self {
-        Popup::AddFileToProfile(value)
-    }
-}
-
-impl From<MountPopup> for Popup {
-    fn from(value: MountPopup) -> Self {
-        Popup::Mount(value)
-    }
-}
-
-impl From<MessagePopup> for Popup {
-    fn from(value: MessagePopup) -> Self {
-        Popup::Error(value)
-    }
-}
-
-impl From<ConfirmationPopup> for Popup {
-    fn from(value: ConfirmationPopup) -> Self {
-        Popup::ConfirmationDialog(value)
-    }
+    ) -> BorgResult<()>;
+    fn draw(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, area: Rect);
+    fn is_done(&self) -> bool;
 }
 
 enum UserIntent {
@@ -777,7 +732,7 @@ pub(crate) struct BorgTui {
     recv_channel: Receiver<CommandResponse>,
     ui_state: UIState,
     previous_ui_state: Option<UIState>,
-    popup_stack: Vec<Popup>,
+    popup_stack: Vec<Box<dyn Popup>>,
     currently_mounted_items: Option<Vec<(String, String)>>,
     user_intent: Vec<UserIntent>,
     // This is not an enum field to make it easier to tab while a backup is in progress.
@@ -870,8 +825,7 @@ impl BorgTui {
                 let initial_dir = dirs::home_dir()
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default();
-                self.popup_stack
-                    .push(AddFileToProfilePopup::new(initial_dir).into());
+                self.add_popup(AddFileToProfilePopup::new(initial_dir));
             }
             KeyCode::Char('s') => {
                 if let Err(e) = self.send_save_command() {
@@ -890,11 +844,11 @@ impl BorgTui {
             }
             KeyCode::Char('m') => {
                 self.send_list_archives_command()?;
-                self.popup_stack.push(MountPopup::new(false).into());
+                self.add_popup(MountPopup::new(false));
             }
             KeyCode::Char('M') => {
                 self.send_list_archives_command()?;
-                self.popup_stack.push(MountPopup::new(true).into());
+                self.add_popup(MountPopup::new(true));
             }
             KeyCode::Char('G') => {
                 if let Some(currently_mounted_items) = self.currently_mounted_items.as_ref() {
@@ -904,18 +858,15 @@ impl BorgTui {
                         text_description.push(format!("- [{}] {}", mountpoint, repo_or_archive));
                     }
                     let text_description = text_description.join("\n");
-                    self.popup_stack.push(
-                        ConfirmationPopup::new(
-                            text_description,
-                            ConfirmationButtonState::Yes,
-                            Box::new(|state, borgtui| {
-                                if let ConfirmationButtonState::Yes = state {
-                                    borgtui.user_intent.push(UserIntent::UnmountAllRepos);
-                                }
-                            }),
-                        )
-                        .into(),
-                    );
+                    self.add_popup(ConfirmationPopup::new(
+                        text_description,
+                        ConfirmationButtonState::Yes,
+                        Box::new(|state, borgtui| {
+                            if let ConfirmationButtonState::Yes = state {
+                                borgtui.user_intent.push(UserIntent::UnmountAllRepos);
+                            }
+                        }),
+                    ))
                 }
             }
             KeyCode::Char('\\') => {
@@ -931,7 +882,7 @@ impl BorgTui {
         Ok(())
     }
 
-    fn run_app<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> BorgResult<()> {
+    fn run_app(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> BorgResult<()> {
         let mut last_tick = Instant::now();
         self.profile
             .backup_paths()
@@ -985,12 +936,16 @@ impl BorgTui {
         }
     }
 
+    fn add_popup<P: Popup + 'static>(&mut self, popup: P) {
+        self.popup_stack.push(Box::new(popup))
+    }
+
     fn add_info<I: Into<String>>(&mut self, info: I) {
         self.info_logs.push_back(info.into())
     }
 
     fn add_error(&mut self, error: String) {
-        self.popup_stack.push(MessagePopup::new(error).into())
+        self.add_popup(MessagePopup::new(error))
     }
 
     fn add_backup_path_to_profile(
@@ -1289,8 +1244,7 @@ impl BorgTui {
             .profile
             .active_repositories()
             .filter_map(|repo| self.backup_state.backup_stats.get(&repo.path))
-            .map(|ring_buffer| ring_buffer.iter().map(metric_fn))
-            .flatten();
+            .flat_map(|ring_buffer| ring_buffer.iter().map(metric_fn));
         let first_stat = stats_iter.next()?;
         let mut min = first_stat;
         let mut max = first_stat;
@@ -1707,7 +1661,7 @@ impl BorgTui {
         }
     }
 
-    fn draw_ui<B: Backend>(&mut self, frame: &mut Frame<B>) {
+    fn draw_ui(&mut self, frame: &mut Frame<CrosstermBackend<Stdout>>) {
         let (mut left, right) = self.split_screen(frame);
         if !self.info_logs.is_empty() {
             let chunks = Layout::default()
