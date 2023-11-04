@@ -1170,10 +1170,8 @@ impl BorgTui {
                         );
                     }
                     CreateProgress::Finished => {
-                        // TODO: Replace this hack with a proper notification
                         self.backup_state.mark_finished(repo.clone());
                         self.add_info(format!("Finished backing up {}", repo));
-                        debug!("test: {:?}", self.info_logs.is_empty());
                         tracing::info!("Finished backing up {}", repo);
                     }
                 }
