@@ -481,7 +481,7 @@ async fn handle_action(
             info!("Added repository {} to profile {}", repository, profile);
             Ok(())
         }
-        Action::List { repository } => {
+        Action::List { repository, latest } => {
             let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
             let timeout_duration_secs = profile.action_timeout_seconds() as i64;
             for repo in profile.active_repositories().filter(|repo| {
@@ -506,8 +506,14 @@ async fn handle_action(
                     }
                 };
                 let repo = list_archives_per_repo.repository.location;
-                for archives in list_archives_per_repo.archives {
-                    info!("{}::{}", repo, archives.name);
+                if latest {
+                    if let Some(last_archive) = list_archives_per_repo.archives.last() {
+                        info!("{}::{}", repo, last_archive.name);
+                    }
+                } else {
+                    for archives in list_archives_per_repo.archives {
+                        info!("{}::{}", repo, archives.name);
+                    }
                 }
             }
             Ok(())

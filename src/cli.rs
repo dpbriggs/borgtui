@@ -125,6 +125,9 @@ pub(crate) enum Action {
     List {
         /// If specified, only list archives from this repository.
         repository: Option<String>,
+        /// If set, only show the latest archive from each repository.
+        #[arg(short, long)]
+        latest: bool,
     },
     /// List the repositories associated with the profile.
     ListRepos,
