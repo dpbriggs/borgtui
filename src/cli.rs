@@ -121,13 +121,18 @@ pub(crate) enum Action {
         /// The mount point
         mountpoint: PathBuf,
     },
-    /// List the archives in a directory
+    /// List the archives in a directory.
+    ///
+    /// By default it'll print the three most recent archives.
     List {
         /// If specified, only list archives from this repository.
         repository: Option<String>,
-        /// If set, only show the latest archive from each repository.
+        /// If set, show all archives from all repositories.
         #[arg(short, long)]
-        latest: bool,
+        all: bool,
+        /// How many archives per repository to list
+        #[arg(short, long, default_value = "3")]
+        count: usize,
     },
     /// List the repositories associated with the profile.
     ListRepos,
