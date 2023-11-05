@@ -19,7 +19,7 @@ use tui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table,
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Stdout;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -162,13 +162,20 @@ impl InputFieldWithSuggestions {
         self.is_done
     }
 
-    fn on_input_buffer_changed<F>(&mut self, input_buffer_change_fn: F) -> BorgResult<()>
+    fn on_input_buffer_changed<F, SuggestionFn>(
+        &mut self,
+        input_buffer_change_fn: F,
+        input_suggestion_fn: SuggestionFn,
+    ) -> BorgResult<()>
     where
-        F: Fn(&str) -> BorgResult<Option<String>>,
+        F: Fn(&str) -> BorgResult<()>,
+        SuggestionFn: Fn(&BTreeSet<String>, &str) -> Option<String>,
     {
         if self.input_buffer_changed {
             self.input_buffer_changed = false;
-            self.input_suggestion = input_buffer_change_fn(self.input_buffer.as_str())?;
+            input_buffer_change_fn(self.input_buffer.as_str())?;
+            self.input_suggestion =
+                input_suggestion_fn(&self.suggestions, self.input_buffer.as_str());
         }
         Ok(())
     }
@@ -302,17 +309,30 @@ impl InputFieldWithSuggestions {
             Style::default().fg(Color::Red)
         };
 
-        let input = Span::styled(self.input_buffer.clone(), input_panel_style);
-        let suggestion = match &self.input_suggestion {
-            Some(sugg) => Span::styled(
-                format!("      (<TAB> {sugg})"),
-                Style::default().fg(Color::Gray),
-            ),
-            None => Span::from(""),
-        };
-
-        let span = Spans::from(vec![input, suggestion]);
-
+        let user_inputted_line = Span::styled(self.input_buffer.clone(), input_panel_style);
+        let mut input_content = vec![user_inputted_line];
+        if let Some(sugg) = &self.input_suggestion {
+            // TODO: When the completion fn runs sometimes the suggestion is the old one
+            // and the change in length can cause this to throw an exception.
+            if sugg.len() >= self.input_buffer.len() {
+                input_content.push(Span::styled(
+                    "     (<TAB> ",
+                    Style::default().fg(Color::Gray),
+                ));
+                input_content.push(Span::styled(
+                    &sugg[0..self.input_buffer.len()],
+                    Style::default().fg(Color::Gray),
+                ));
+                input_content.push(Span::styled(
+                    &sugg[self.input_buffer.len()..],
+                    Style::default()
+                        .fg(Color::LightBlue)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                input_content.push(Span::styled(")", Style::default().fg(Color::Gray)));
+            }
+        }
+        let span = Spans::from(input_content);
         let input_panel =
             Paragraph::new(span).block(Block::default().borders(Borders::ALL).title("Input"));
         frame.render_widget(input_panel, input_panel_area);
@@ -433,11 +453,15 @@ impl Popup for MountPopup {
                         .iter()
                         .map(|path| path.to_string_lossy().to_string()),
                 );
-                self.input.on_input_buffer_changed(|input_buffer| {
-                    let command = Command::GetDirectorySuggestionsFor(input_buffer.to_string());
-                    command_channel.blocking_send(command)?;
-                    Ok(None)
-                })?;
+                self.input.on_input_buffer_changed(
+                    |input_buffer| {
+                        let command = Command::GetDirectorySuggestionsFor(input_buffer.to_string());
+                        command_channel.blocking_send(command)?;
+                        Ok(())
+                    },
+                    // TODO: Implement suggestions for mount
+                    |_, _| None,
+                )?;
             }
         }
         Ok(())
@@ -534,17 +558,14 @@ impl Popup for AddFileToProfilePopup {
                 .iter()
                 .map(|path| path.to_string_lossy().to_string()),
         );
-        self.input.on_input_buffer_changed(|input_buffer| {
-            let command = Command::GetDirectorySuggestionsFor(input_buffer.to_string());
-            command_channel.blocking_send(command)?;
-            let path = Path::new(&input_buffer);
-            if let Ok(canonicalized) = path.canonicalize() {
-                if canonicalized != Path::new(&input_buffer) {
-                    return Ok(Some(canonicalized.to_string_lossy().to_string()));
-                }
-            }
-            Ok(None)
-        })?;
+        self.input.on_input_buffer_changed(
+            |input_buffer| {
+                let command = Command::GetDirectorySuggestionsFor(input_buffer.to_string());
+                command_channel.blocking_send(command)?;
+                Ok(())
+            },
+            filter_directory_suggestions,
+        )?;
         Ok(())
     }
 
