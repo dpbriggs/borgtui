@@ -1,6 +1,7 @@
 use std::{
     io::Write,
     num::NonZeroU16,
+    os::unix::prelude::PermissionsExt,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -73,8 +74,11 @@ impl Encryption {
             (Some(keyfile), Some(borg_passphrase)) => {
                 let keyfile_path = Path::new(&keyfile);
                 if !keyfile_path.exists() {
-                    std::fs::File::create(keyfile_path)?
-                        .write_all(borg_passphrase.inner_ref().as_bytes())?;
+                    let mut file = std::fs::File::create(keyfile_path)?;
+                    let mut permissions = file.metadata()?.permissions();
+                    permissions.set_mode(0o600);
+                    file.set_permissions(permissions)?;
+                    file.write_all(borg_passphrase.inner_ref().as_bytes())?;
                 } else {
                     tracing::warn!("Keyfile exists and BORG_PASSPHRASE set in the environment. Ignoring BORG_PASSPHRASE and not updating the keyfile!");
                 }
@@ -134,7 +138,10 @@ impl Repository {
                 .map_err(|e| anyhow::anyhow!("Failed to get passphrase from keyring: {}", e))
                 .map(Some),
             Encryption::Keyfile(filepath) => {
-                let passphrase = fs::read_to_string(filepath)?.trim().to_string();
+                let passphrase = fs::read_to_string(filepath)
+                    .with_context(|| format!("Failed to read {filepath:?}. Does the file exist?"))?
+                    .trim()
+                    .to_string();
                 Ok(Some(passphrase))
             }
         }
