@@ -9,27 +9,27 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::symbols;
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, Tabs, Wrap};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::{error, info};
-use tui::layout::Rect;
-use tui::style::{Color, Modifier, Style};
-use tui::symbols;
-use tui::text::{Span, Spans};
-use tui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, Tabs, Wrap};
 
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    text::Text,
+    widgets::{Block, Borders, List, ListItem},
+    Frame, Terminal,
+};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Stdout;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tui::{
-    backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout},
-    text::Text,
-    widgets::{Block, Borders, List, ListItem},
-    Frame, Terminal,
-};
 
 const BYTES_TO_MEGABYTES_F64: f64 = 1024.0 * 1024.0;
 // Maximum amount of stats to retain
@@ -272,11 +272,11 @@ impl InputFieldWithSuggestions {
         }
     }
 
-    fn draw<B: Backend, F>(&self, frame: &mut Frame<B>, area: Rect, input_panel_style: F)
+    fn draw<F>(&self, frame: &mut Frame, area: Rect, input_panel_style: F)
     where
         F: Fn(&BTreeSet<String>, &str) -> bool,
     {
-        frame.render_widget(tui::widgets::Clear, area);
+        frame.render_widget(ratatui::widgets::Clear, area);
         let input_box_size = 3;
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -332,7 +332,7 @@ impl InputFieldWithSuggestions {
                 input_content.push(Span::styled(")", Style::default().fg(Color::Gray)));
             }
         }
-        let span = Spans::from(input_content);
+        let span = Line::from(input_content);
         let input_panel =
             Paragraph::new(span).block(Block::default().borders(Borders::ALL).title("Input"));
         frame.render_widget(input_panel, input_panel_area);
@@ -483,7 +483,7 @@ impl Popup for MountPopup {
         self.input.is_done() || self.is_done
     }
 
-    fn draw(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect) {
         self.input.draw(frame, area, |suggestions, input_buffer| {
             suggestions.contains(input_buffer)
         })
@@ -574,7 +574,7 @@ impl Popup for AddFileToProfilePopup {
         self.input.is_done() || self.path_successfully_added.load(Ordering::SeqCst)
     }
 
-    fn draw(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect) {
         self.input.draw(frame, area, |_, input_buffer| {
             std::fs::metadata(input_buffer).is_ok()
         })
@@ -666,8 +666,8 @@ impl Popup for ConfirmationPopup {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, area: Rect) {
-        frame.render_widget(tui::widgets::Clear, area);
+    fn draw(&self, frame: &mut Frame, area: Rect) {
+        frame.render_widget(ratatui::widgets::Clear, area);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(90), Constraint::Min(1)].as_ref())
@@ -688,7 +688,7 @@ impl Popup for ConfirmationPopup {
         } else {
             1
         };
-        let buttons = Tabs::new([Spans::from("Yes (y)"), Spans::from("No (n)")].to_vec())
+        let buttons = Tabs::new([Line::from("Yes (y)"), Line::from("No (n)")].to_vec())
             .block(Block::default().title("Options").borders(Borders::ALL))
             .highlight_style(Style::default().fg(Color::Gray))
             .select(selected);
@@ -737,8 +737,8 @@ impl Popup for MessagePopup {
         self.is_dismissed
     }
 
-    fn draw(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, area: Rect) {
-        frame.render_widget(tui::widgets::Clear, area);
+    fn draw(&self, frame: &mut Frame, area: Rect) {
+        frame.render_widget(ratatui::widgets::Clear, area);
         let input_panel = Paragraph::new(self.error_message.clone())
             .wrap(Wrap { trim: true })
             .block(Block::default().borders(Borders::ALL).title("Error"));
@@ -754,7 +754,7 @@ trait Popup {
         directory_suggestions: &[PathBuf],
         list_archives: &HashMap<String, ListRepository>,
     ) -> BorgResult<()>;
-    fn draw(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, area: Rect);
+    fn draw(&self, frame: &mut Frame, area: Rect);
     fn is_done(&self) -> bool;
 }
 
@@ -1294,7 +1294,7 @@ impl BorgTui {
         Some((min, max))
     }
 
-    fn draw_backup_chart<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+    fn draw_backup_chart(&self, frame: &mut Frame, area: Rect) {
         let mut datasets = Vec::new();
         // TODO: How to make original size look good?
         let original_size_metrics: Vec<_> = self
@@ -1397,7 +1397,7 @@ impl BorgTui {
         frame.render_widget(chart, area);
     }
 
-    fn draw_backup_list<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+    fn draw_backup_list(&self, frame: &mut Frame, area: Rect) {
         // TODO: Handle running out of vertical space!
         let backup_constraints = std::iter::repeat(Constraint::Percentage(
             100 / self.profile.num_repos() as u16,
@@ -1411,7 +1411,7 @@ impl BorgTui {
         self.profile
             .repositories()
             .iter()
-            .zip(areas)
+            .zip(areas.as_ref())
             .for_each(|(repo, area)| {
                 let mut items = self
                     .backup_state
@@ -1465,7 +1465,7 @@ impl BorgTui {
                 };
                 let backup_file_list = List::new(items)
                     .block(Block::default().borders(Borders::ALL).title(backup_span));
-                frame.render_widget(backup_file_list, area);
+                frame.render_widget(backup_file_list, *area);
             })
     }
 
@@ -1483,7 +1483,7 @@ impl BorgTui {
             .collect()
     }
 
-    fn draw_all_archive_lists<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+    fn draw_all_archive_lists(&self, frame: &mut Frame, area: Rect) {
         // (RepoName, Option<ListArchive>)
         let repos_with_archives: Vec<_> = self.repos_with_archives();
         let backup_constraints = std::iter::repeat(Constraint::Percentage(
@@ -1496,7 +1496,7 @@ impl BorgTui {
             .constraints(backup_constraints.as_ref())
             .split(area);
         for ((repo_name, list_archive, repo_disabled), area) in
-            repos_with_archives.into_iter().zip(areas)
+            repos_with_archives.into_iter().zip(areas.as_ref())
         {
             let archive_rows = match list_archive {
                 Some(list_archive) => list_archive
@@ -1522,23 +1522,23 @@ impl BorgTui {
             let archive_table = Table::new(archive_rows)
                 .widths(&[Constraint::Percentage(30), Constraint::Percentage(70)])
                 .block(Block::default().borders(Borders::ALL).title(repo_name));
-            frame.render_widget(archive_table, area)
+            frame.render_widget(archive_table, *area)
         }
     }
 
-    fn draw_info_panel<B: Backend>(&mut self, frame: &mut Frame<B>, area: Rect) {
+    fn draw_info_panel(&mut self, frame: &mut Frame, area: Rect) {
         let text = vec![
-            Spans::from("• Press 'q' to quit"),
-            Spans::from("• Press 'u' to backup"),
-            Spans::from("• Press 'p' to toggle profile"),
-            Spans::from("• Press 'l' to list archives"),
-            Spans::from("• Press 'a' to add a backup path"),
-            Spans::from("• Press 's' to save profile"),
-            Spans::from("• Press 'c' to compact"),
-            Spans::from("• Press 'm' to mount"),
-            Spans::from("• Press 'M' to mount a repo"),
-            Spans::from("• Press 'G' to unmount all"),
-            Spans::from("• Press '\\' to prune"),
+            Line::from("• Press 'q' to quit"),
+            Line::from("• Press 'u' to backup"),
+            Line::from("• Press 'p' to toggle profile"),
+            Line::from("• Press 'l' to list archives"),
+            Line::from("• Press 'a' to add a backup path"),
+            Line::from("• Press 's' to save profile"),
+            Line::from("• Press 'c' to compact"),
+            Line::from("• Press 'm' to mount"),
+            Line::from("• Press 'M' to mount a repo"),
+            Line::from("• Press 'G' to unmount all"),
+            Line::from("• Press '\\' to prune"),
         ];
         let info_panel = Paragraph::new(text)
             .wrap(Wrap { trim: true })
@@ -1546,11 +1546,11 @@ impl BorgTui {
         frame.render_widget(info_panel, area);
     }
 
-    fn draw_info_logs<B: Backend>(&self, frame: &mut Frame<B>, area: Rect) {
+    fn draw_info_logs(&self, frame: &mut Frame, area: Rect) {
         let info_log_text = self
             .info_logs
             .iter()
-            .map(|s| Spans::from(format!("> {}\n", s)))
+            .map(|s| Line::from(format!("> {}\n", s)))
             .collect::<Vec<_>>();
         let info_panel = Paragraph::new(info_log_text)
             .wrap(Wrap { trim: true })
@@ -1558,7 +1558,7 @@ impl BorgTui {
         frame.render_widget(info_panel, area);
     }
 
-    fn split_screen<B: Backend>(&self, frame: &mut Frame<B>) -> (Rect, Rect) {
+    fn split_screen(&self, frame: &mut Frame) -> (Rect, Rect) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
@@ -1566,7 +1566,7 @@ impl BorgTui {
         (chunks[0], chunks[1])
     }
 
-    fn draw_backup_dirs<B: Backend>(&mut self, frame: &mut Frame<B>, backup_paths_area: Rect) {
+    fn draw_backup_dirs(&mut self, frame: &mut Frame, backup_paths_area: Rect) {
         let header_cells = ["Size", "Path"].iter().map(|header| Cell::from(*header));
         let header_row = Row::new(header_cells);
         let mut total_backup_dir_size = 0;
@@ -1595,7 +1595,7 @@ impl BorgTui {
         frame.render_widget(table, backup_paths_area);
     }
 
-    fn draw_mounted_items<B: Backend>(&mut self, frame: &mut Frame<B>, backup_paths_area: Rect) {
+    fn draw_mounted_items(&mut self, frame: &mut Frame, backup_paths_area: Rect) {
         let header_cells = ["Source", "Mount Point"]
             .iter()
             .map(|header| Cell::from(*header));
@@ -1623,9 +1623,9 @@ impl BorgTui {
         frame.render_widget(table, backup_paths_area);
     }
 
-    fn draw_profile_view<B: Backend>(
+    fn draw_profile_view(
         &mut self,
-        frame: &mut Frame<B>,
+        frame: &mut Frame,
         repo_area: Rect,
         backup_paths_area: Rect,
         mounted_items: Option<Rect>,
@@ -1648,7 +1648,7 @@ impl BorgTui {
         }
     }
 
-    fn draw_main_right_panel<B: Backend>(&mut self, frame: &mut Frame<B>, right_area: Rect) {
+    fn draw_main_right_panel(&mut self, frame: &mut Frame, right_area: Rect) {
         match &self.ui_state {
             UIState::ProfileView => {
                 let mounted_items = self
@@ -1694,7 +1694,7 @@ impl BorgTui {
         }
     }
 
-    fn draw_ui(&mut self, frame: &mut Frame<CrosstermBackend<Stdout>>) {
+    fn draw_ui(&mut self, frame: &mut Frame) {
         let (mut left, right) = self.split_screen(frame);
         if !self.info_logs.is_empty() {
             let chunks = Layout::default()
