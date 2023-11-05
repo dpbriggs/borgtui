@@ -190,7 +190,7 @@ impl InputFieldWithSuggestions {
         validation_fn: ValidationFn,
     ) -> Option<String>
     where
-        CompletionFn: Fn(&BTreeSet<String>, &mut String) -> bool,
+        CompletionFn: Fn(&BTreeSet<String>, &str) -> Option<String>,
         ValidationFn: Fn(&BTreeSet<String>, &String) -> bool,
     {
         match (key.code, key.modifiers) {
@@ -215,8 +215,10 @@ impl InputFieldWithSuggestions {
                 None
             }
             (KeyCode::Tab, _) => {
-                self.input_buffer_changed =
-                    completion_fn(&self.suggestions, &mut self.input_buffer);
+                if let Some(completion) = completion_fn(&self.suggestions, &mut self.input_buffer) {
+                    self.input_buffer_changed = true;
+                    self.input_buffer = completion;
+                }
                 None
             }
             (KeyCode::Esc, _) => {
@@ -371,14 +373,12 @@ impl MountPopup {
         let res = self.input.handle_key(
             key,
             |suggestions, input_buffer| {
-                let mut input_buffer_changed = false;
-                if let Some(res) = suggestions.range(input_buffer.clone()..).next() {
+                if let Some(res) = suggestions.range(input_buffer.to_string()..).next() {
                     if res != input_buffer {
-                        *input_buffer = res.clone();
-                        input_buffer_changed = true;
+                        return Some(res.clone());
                     }
                 }
-                input_buffer_changed
+                None
             },
             |suggestions, input_buffer| suggestions.contains(input_buffer),
         );
@@ -472,26 +472,27 @@ struct AddFileToProfilePopup {
     input: InputFieldWithSuggestions,
 }
 
-fn filter_directory_suggestions(suggestions: &BTreeSet<String>, input_buffer: &mut String) -> bool {
-    let mut input_buffer_changed = false;
+fn filter_directory_suggestions(
+    suggestions: &BTreeSet<String>,
+    input_buffer: &str,
+) -> Option<String> {
     // TODO: Make this search fuzzier (so lower case characters work)
-    if let Some(res) = suggestions.range(input_buffer.clone()..).next() {
+    if let Some(res) = suggestions.range(input_buffer.to_string()..).next() {
         if input_buffer == res {
             // Given Borg doesn't support windows we won't be supporting backslashes here.
             // TODO: Add a timeout here
             // Canonicalize path
-            if let Ok(res) = std::fs::canonicalize(&input_buffer) {
-                *input_buffer = res.to_string_lossy().to_string();
+            if let Ok(res) = std::fs::canonicalize(input_buffer) {
+                return Some(format!("{}/", res.to_string_lossy()));
             }
             if !input_buffer.ends_with('/') {
-                input_buffer.push('/');
+                return Some(format!("{}/", input_buffer));
             }
         } else {
-            *input_buffer = res.to_string();
+            return Some(res.to_string());
         }
-        input_buffer_changed = true;
     }
-    input_buffer_changed
+    None
 }
 
 impl AddFileToProfilePopup {
