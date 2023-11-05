@@ -1,15 +1,17 @@
 use std::{
+    io::Write,
     num::NonZeroU16,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use crate::types::BorgResult;
+use crate::{cli::PassphraseSource, types::BorgResult};
 use anyhow::anyhow;
 use anyhow::{bail, Context};
 use borgbackup::common::{CommonOptions, CreateOptions, Pattern};
 use keyring::Entry;
 use std::fs;
+use tracing::info;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -56,7 +58,32 @@ pub(crate) enum Encryption {
     None,
     Raw(Passphrase),
     Keyring,
-    Keyfile(String),
+    Keyfile(PathBuf),
+}
+
+impl Encryption {
+    pub(crate) fn from_passphrase_loc(passphrase_loc: PassphraseSource) -> BorgResult<Self> {
+        if passphrase_loc.raw {
+            if let Some(borg_passphrase) = passphrase_loc.borg_passphrase {
+                return Ok(Encryption::Raw(borg_passphrase));
+            }
+        }
+        match (passphrase_loc.keyfile, passphrase_loc.borg_passphrase) {
+            (Some(keyfile), None) => Ok(Encryption::Keyfile(keyfile)),
+            (Some(keyfile), Some(borg_passphrase)) => {
+                let keyfile_path = Path::new(&keyfile);
+                if !keyfile_path.exists() {
+                    std::fs::File::create(keyfile_path)?
+                        .write_all(borg_passphrase.inner_ref().as_bytes())?;
+                } else {
+                    tracing::warn!("Keyfile exists and BORG_PASSPHRASE set in the environment. Ignoring BORG_PASSPHRASE and not updating the keyfile!");
+                }
+                Ok(Encryption::Keyfile(keyfile))
+            }
+            (None, Some(_borg_passphrase)) => Ok(Encryption::Keyring),
+            (None, None) => Ok(Encryption::None),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -106,7 +133,6 @@ impl Repository {
                 .get_password()
                 .map_err(|e| anyhow::anyhow!("Failed to get passphrase from keyring: {}", e))
                 .map(Some),
-            // TODO: Properly support key files
             Encryption::Keyfile(filepath) => {
                 let passphrase = fs::read_to_string(filepath)?.trim().to_string();
                 Ok(Some(passphrase))
@@ -129,10 +155,10 @@ impl Repository {
                 )
             })?;
             entry
-                .set_password(&borg_passphrase.inner())
+                .set_password(borg_passphrase.inner_ref())
                 .with_context(|| {
                     format!(
-                        "Failed to set password for repository {} in profile {}",
+                        "Failed to set password in keyring for repository {} in profile {}",
                         &self.path, &self
                     )
                 })?;
@@ -420,38 +446,34 @@ impl Profile {
     pub(crate) fn add_repository(
         &mut self,
         path: String,
-        borg_passphrase: Option<Passphrase>,
+        passphrase_loc: PassphraseSource,
         rsh: Option<String>,
-        do_not_store_in_keyring: bool,
-        store_passphase_in_cleartext: bool,
     ) -> BorgResult<()> {
-        let encryption = match borg_passphrase {
-            Some(borg_passphrase) => {
-                // TODO: Refactor this into a separate function
-                if store_passphase_in_cleartext {
-                    Encryption::Raw(borg_passphrase)
-                } else if !do_not_store_in_keyring {
-                    let entry = get_keyring_entry(&path)?;
-                    entry
-                        .set_password(borg_passphrase.inner_ref())
-                        .with_context(|| {
-                            format!(
-                                "Failed to set password for repository {} in profile {}",
-                                path, &self
-                            )
-                        })?;
-                    assert!(entry.get_password().is_ok());
-                    Encryption::Keyring
-                } else {
-                    Encryption::None
-                }
-            }
-            None => Encryption::None,
-        };
+        let borg_passphrase = passphrase_loc.get_passphrase();
+        let encryption = Encryption::from_passphrase_loc(passphrase_loc)?;
+        // Actually insert the password into the keyring
+        // TODO: Don't do this twice (maybe use a builder pattern when making a Repository<> for the first time.)
+        if let Encryption::Keyring = encryption {
+            info!("Storing BORG_PASSPHRASE into the keyring..");
+            let entry = get_keyring_entry(&path)?;
+            let passphrase = borg_passphrase?.ok_or_else(|| {
+                anyhow::anyhow!("Keyfile borg passphrase selected but no BORG_PASSPHRASE provided!")
+            })?;
+            entry
+                .set_password(passphrase.inner_ref())
+                .with_context(|| {
+                    format!(
+                        "Failed to set password in keyring for repository {} in profile {}",
+                        path, &self
+                    )
+                })?;
+            assert!(entry.get_password().is_ok());
+        }
         self.repos.push(Repository::new(path, encryption, rsh));
         Ok(())
     }
 
+    // TODO: Rewrite this in terms of PassphraseSource
     pub(crate) fn update_repository_password(
         &mut self,
         repo_path: &str,

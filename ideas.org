@@ -77,3 +77,4 @@ CLOSED: [2023-11-04 Sat 10:42]
 ** TODO Check if a file exists when using set-password with a keyfile
 ** TODO Fix how notifications are handled in check (there's several in different places)
 ** TODO Make a generic notifications function
+** TODO Using =init= on a new profile should make that profile

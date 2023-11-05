@@ -401,22 +401,14 @@ async fn handle_action(
 ) -> BorgResult<()> {
     match action {
         Action::Init {
-            borg_passphrase,
+            passphrase_loc,
             location,
             rsh,
-            do_not_store_in_keyring,
         } => {
-            // TODO: Handle not storing in the keyring
-            let _ = do_not_store_in_keyring;
             let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let borg_passphrase = passphrase_loc.get_passphrase()?;
             borg::init(borg_passphrase.clone(), location.clone(), rsh.clone()).await?;
-            profile.add_repository(
-                location.clone(),
-                Some(borg_passphrase),
-                rsh,
-                do_not_store_in_keyring,
-                false,
-            )?;
+            profile.add_repository(location.clone(), passphrase_loc, rsh)?;
             profile.save_profile().await?;
             info!("Added repo: {}", location);
             Ok(())
@@ -445,11 +437,8 @@ async fn handle_action(
         }
         Action::AddRepo {
             repository,
-            no_encryption,
-            borg_passphrase,
+            passphrase_loc,
             rsh,
-            do_not_store_in_keyring,
-            store_passphase_in_cleartext,
         } => {
             // TODO: Check if repo is valid (maybe once "borg info" or something works)
             let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
@@ -460,23 +449,7 @@ async fn handle_action(
                     profile
                 );
             }
-            let passphrase = match borg_passphrase {
-                Some(passphrase) => Some(passphrase),
-                None => {
-                    if no_encryption {
-                        None
-                    } else {
-                        bail!("Please provide BORG_PASSPHRASE in the environment or use the appropriate flag.");
-                    }
-                }
-            };
-            profile.add_repository(
-                repository.clone(),
-                passphrase,
-                rsh,
-                do_not_store_in_keyring,
-                store_passphase_in_cleartext,
-            )?;
+            profile.add_repository(repository.clone(), passphrase_loc, rsh)?;
             profile.save_profile().await?;
             info!("Added repository {} to profile {}", repository, profile);
             Ok(())
@@ -533,36 +506,14 @@ async fn handle_action(
         }
         Action::SetPassword {
             repo,
-            keyfile,
-            none,
-            unsafe_raw_string_in_config_file,
-            borg_passphrase,
+            passphrase_loc,
         } => {
             let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
-            if keyfile.is_none() && borg_passphrase.is_none() {
-                bail!("Please set BORG_PASSPHRASE in your environment or specify --keyfile to use a key file");
-            }
-            if keyfile.is_some() && borg_passphrase.is_some() {
-                bail!("Both --keyfile and BORG_PASSPHRASE are set. Please set one or the other.");
-            }
-            let encryption = match (&keyfile, none, unsafe_raw_string_in_config_file) {
-                (Some(_), true, _) | (Some(_), _, true) | (_, true, true) => {
-                    bail!("Please only set one of  --keyfile, --none, and --unsafe-raw-string-in-config-file");
-                }
-                (Some(keyfile), _, _) => Encryption::Keyfile(keyfile.to_string_lossy().to_string()),
-                (_, true, _) => Encryption::None,
-                (_, _, true) => Encryption::Raw(borg_passphrase.clone().ok_or_else(|| {
-                    anyhow!("Expected BORG_PASSPHRASE to be set when using raw encryption")
-                })?),
-                _ => Encryption::Keyring,
-            };
+            let borg_passphrase = passphrase_loc.get_passphrase()?;
+            let encryption = Encryption::from_passphrase_loc(passphrase_loc)?;
             profile.update_repository_password(&repo, encryption.clone(), borg_passphrase)?;
             profile.save_profile().await?;
-            info!(
-                "Updated password for {} (method: {:?})",
-                repo,
-                encryption.clone()
-            );
+            info!("Updated password for {} (method: {:?})", repo, encryption);
             Ok(())
         }
         Action::Compact => {

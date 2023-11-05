@@ -31,22 +31,44 @@ pub(crate) struct Args {
     pub(crate) watch_profile: bool,
 }
 
+#[derive(Parser, Debug, Clone)]
+pub(crate) struct PassphraseSource {
+    /// Use a keyfile (a file path containing the borg passphrase)
+    #[arg(short, long)]
+    pub(crate) keyfile: Option<PathBuf>,
+    /// Store the borg passphrase in the config file.
+    #[arg(short = 'c', long)]
+    pub(crate) raw: bool,
+    /// No borg passphrase associated with this repository.
+    ///
+    /// Implied if no other borg passphrase sources are specified.
+    #[arg(short, long)]
+    pub(crate) none: bool,
+    /// Obtain the borg passphrase from the environment.
+    #[arg(env)]
+    pub(crate) borg_passphrase: Option<Passphrase>,
+}
+
+impl PassphraseSource {
+    pub(crate) fn get_passphrase(&self) -> BorgResult<Option<Passphrase>> {
+        if self.none {
+            return Ok(None);
+        }
+        if let Some(borg_passphrase) = &self.borg_passphrase {
+            Ok(Some(borg_passphrase.clone()))
+        } else if let Some(keyfile) = &self.keyfile {
+            let passphrase = std::fs::read_to_string(keyfile)?.trim().to_string();
+            Ok(Some(passphrase.into()))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 #[derive(Subcommand, Debug, Clone)]
 pub(crate) enum Action {
     /// Initialize a new borg repository and add it to a profile
     Init {
-        /// Password used for encrypting repositories. Please set it in the environment.
-        #[arg(env)]
-        borg_passphrase: Passphrase,
-
-        // TODO: Use the same format as "set-password"
-        /// Do not store the passphrase in the keyring
-        ///
-        /// Note that this implies you need to specify BORG_PASSPHRASE every
-        /// time you want to use BorgTUI.
-        #[arg(short, long)]
-        do_not_store_in_keyring: bool,
-
         /// SSH command to use when connecting to the repo
         #[arg(short, long)]
         rsh: Option<String>,
@@ -57,6 +79,9 @@ pub(crate) enum Action {
         /// - /hdd3/NewBackup
         /// - /hdd2/NewBackup
         location: String,
+
+        #[command(flatten)]
+        passphrase_loc: PassphraseSource,
     },
     /// Create a new backup
     Create,
@@ -81,27 +106,8 @@ pub(crate) enum Action {
         #[arg(short, long)]
         rsh: Option<String>,
 
-        /// Do not store the passphrase in the keyring
-        ///
-        /// Note that this implies you need to specify BORG_PASSPHRASE every
-        /// time you want to use BorgTUI.
-        #[arg(short, long)]
-        do_not_store_in_keyring: bool,
-
-        // TODO: Simplify these options!
-        /// The encryption passphrase to use. If not specified and borgtui
-        /// called in an interactive terminal, the user will be prompted.
-        #[arg(short, long, default_value = "true")]
-        no_encryption: bool,
-
-        /// Password used for encrypting repositories. Please set it in the environment.
-        #[arg(env)]
-        borg_passphrase: Option<Passphrase>,
-
-        /// If true, store the encryption passphrase in cleartext in the
-        /// configuration file. This is not recommended.
-        #[arg(short, long, default_value = "false")]
-        store_passphase_in_cleartext: bool,
+        #[command(flatten)]
+        passphrase_loc: PassphraseSource,
     },
     /// Create a new profile with a given name
     AddProfile { name: String },
@@ -137,22 +143,13 @@ pub(crate) enum Action {
     /// List the repositories associated with the profile.
     ListRepos,
     /// Set the password for a repository. By default it will read
-    /// BORG_PASSPHRASE from the environment unless `--keyfile` is specified.
+    /// BORG_PASSPHRASE from the environment unless --keyfile is specified.
     SetPassword {
         /// Name of the repository (use `borgtui list-repos` to list)
         repo: String,
-        /// Path to a keyfile
-        #[arg(short, long)]
-        keyfile: Option<PathBuf>,
-        /// If set, use no encryption with the repository (i.e. no BORG_PASSPHRASE)
-        #[arg(short, long)]
-        none: bool,
-        /// If set, store the BORG_PASSPHRASE in the configuration file.
-        #[arg(short, long)]
-        unsafe_raw_string_in_config_file: bool,
-        /// Password used for encrypting repositories. Please set it in the environment.
-        #[arg(env)]
-        borg_passphrase: Option<Passphrase>,
+
+        #[command(flatten)]
+        passphrase_loc: PassphraseSource,
     },
     /// Compact a borg repo
     Compact,

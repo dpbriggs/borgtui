@@ -39,11 +39,15 @@ pub(crate) struct BorgCreateProgress {
 }
 
 pub(crate) async fn init(
-    borg_passphrase: Passphrase,
+    borg_passphrase: Option<Passphrase>,
     repo_loc: String,
     rsh: Option<String>,
 ) -> BorgResult<()> {
-    let init_options = InitOptions::new(repo_loc, EncryptionMode::Repokey(borg_passphrase.inner()));
+    let encryption_mode = match borg_passphrase {
+        Some(passphrase) => EncryptionMode::Repokey(passphrase.inner()),
+        None => EncryptionMode::None,
+    };
+    let init_options = InitOptions::new(repo_loc, encryption_mode);
     borg_async::init(
         &init_options,
         &CommonOptions {
