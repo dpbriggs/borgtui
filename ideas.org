@@ -78,3 +78,5 @@ CLOSED: [2023-11-04 Sat 10:42]
 ** TODO Fix how notifications are handled in check (there's several in different places)
 ** TODO Make a generic notifications function
 ** TODO Using =init= on a new profile should make that profile
+** TODO Suggest a canonicalized path in the "add file path" popup
+** TODO BUG: Mount points aren't sorted in most recent order

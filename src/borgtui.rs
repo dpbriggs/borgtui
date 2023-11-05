@@ -293,11 +293,10 @@ impl InputFieldWithSuggestions {
         );
         frame.render_widget(content, top_area);
 
-        // TODO: Add a "red" state when validation fails
         let input_panel_style = if input_panel_style(&self.suggestions, &self.input_buffer) {
             Style::default().fg(Color::Green)
         } else {
-            Style::default()
+            Style::default().fg(Color::Red)
         };
 
         let input_panel = Paragraph::new(self.input_buffer.clone())
@@ -1460,23 +1459,17 @@ impl BorgTui {
             repos_with_archives.into_iter().zip(areas)
         {
             let archive_rows = match list_archive {
-                Some(list_archive) => {
-                    list_archive
-                        .archives
-                        .iter()
-                        .rev()
-                        .map(|archive| {
-                            Row::new([
-                                Cell::from(format!(
-                                    "{}",
-                                    // TODO: This is a bit a goofy
-                                    archive.start.format("%b %d %Y %H:%M:%S")
-                                )),
-                                Cell::from(archive.name.clone()),
-                            ])
-                        })
-                        .collect::<Vec<_>>()
-                }
+                Some(list_archive) => list_archive
+                    .archives
+                    .iter()
+                    .rev()
+                    .map(|archive| {
+                        Row::new([
+                            Cell::from(format!("{}", archive.start.format("%b %d %Y %H:%M:%S"))),
+                            Cell::from(archive.name.clone()),
+                        ])
+                    })
+                    .collect::<Vec<_>>(),
                 None => {
                     let cell = if repo_disabled {
                         Cell::from("Repo disabled, not fetching...")
