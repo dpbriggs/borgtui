@@ -19,7 +19,7 @@ use tui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table,
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Stdout;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -132,6 +132,7 @@ struct InputFieldWithSuggestions {
     suggestions: BTreeSet<String>,
     input_buffer: String,
     input_buffer_changed: bool,
+    input_suggestion: Option<String>,
     content_title: String,
     is_editing: bool,
     is_done: bool,
@@ -144,6 +145,7 @@ impl InputFieldWithSuggestions {
             suggestions: BTreeSet::new(),
             input_buffer_changed: !initial_input_text.is_empty(),
             input_buffer: initial_input_text,
+            input_suggestion: None,
             content_title,
             is_editing: true,
             is_done: false,
@@ -162,14 +164,13 @@ impl InputFieldWithSuggestions {
 
     fn on_input_buffer_changed<F>(&mut self, input_buffer_change_fn: F) -> BorgResult<()>
     where
-        F: Fn(&str) -> BorgResult<()>,
+        F: Fn(&str) -> BorgResult<Option<String>>,
     {
         if self.input_buffer_changed {
             self.input_buffer_changed = false;
-            input_buffer_change_fn(self.input_buffer.as_str())
-        } else {
-            Ok(())
+            self.input_suggestion = input_buffer_change_fn(self.input_buffer.as_str())?;
         }
+        Ok(())
     }
 
     fn update_cursor(&mut self, new_index: usize) {
@@ -299,9 +300,19 @@ impl InputFieldWithSuggestions {
             Style::default().fg(Color::Red)
         };
 
-        let input_panel = Paragraph::new(self.input_buffer.clone())
-            .style(input_panel_style)
-            .block(Block::default().borders(Borders::ALL).title("Input"));
+        let input = Span::styled(self.input_buffer.clone(), input_panel_style);
+        let suggestion = match &self.input_suggestion {
+            Some(sugg) => Span::styled(
+                format!("      (<TAB> {sugg})"),
+                Style::default().fg(Color::Gray),
+            ),
+            None => Span::from(""),
+        };
+
+        let span = Spans::from(vec![input, suggestion]);
+
+        let input_panel =
+            Paragraph::new(span).block(Block::default().borders(Borders::ALL).title("Input"));
         frame.render_widget(input_panel, input_panel_area);
     }
 }
@@ -339,6 +350,7 @@ impl MountPopup {
             is_done: false,
         }
     }
+
     fn update_list_archive_suggestions(&mut self, list_archives: &HashMap<String, ListRepository>) {
         let num_list_archives = list_archives
             .values()
@@ -424,7 +436,7 @@ impl Popup for MountPopup {
                 self.input.on_input_buffer_changed(|input_buffer| {
                     let command = Command::GetDirectorySuggestionsFor(input_buffer.to_string());
                     command_channel.blocking_send(command)?;
-                    Ok(())
+                    Ok(None)
                 })?;
             }
         }
@@ -524,7 +536,13 @@ impl Popup for AddFileToProfilePopup {
         self.input.on_input_buffer_changed(|input_buffer| {
             let command = Command::GetDirectorySuggestionsFor(input_buffer.to_string());
             command_channel.blocking_send(command)?;
-            Ok(())
+            let path = Path::new(&input_buffer);
+            if let Ok(canonicalized) = path.canonicalize() {
+                if canonicalized != Path::new(&input_buffer) {
+                    return Ok(Some(canonicalized.to_string_lossy().to_string()));
+                }
+            }
+            Ok(None)
         })?;
         Ok(())
     }
