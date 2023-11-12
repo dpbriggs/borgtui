@@ -4,8 +4,8 @@ use crate::{
     borgtui::CommandResponse,
     profiles::{Passphrase, Profile, Repository},
     types::{
-        log_on_error, send_error, send_info, take_repo_lock, BorgResult,
-        FAILURE_NOTIFICATION_DURATION,
+        log_on_error, send_error, send_info, show_notification, take_repo_lock, BorgResult,
+        EXTENDED_NOTIFICATION_DURATION, SHORT_NOTIFICATION_DURATION,
     },
 };
 use anyhow::{anyhow, bail};
@@ -17,7 +17,6 @@ use borgbackup::{
     },
     output::list::ListRepository,
 };
-use notify_rust::Notification;
 use tokio::{
     sync::{mpsc, Semaphore},
     task::JoinHandle,
@@ -88,11 +87,12 @@ pub(crate) async fn create_backup_with_notification(
                 profile_name, nicely_formatted
             );
             log_on_error!(
-                Notification::new()
-                    .summary(&format!("Backup complete for {}", profile_name))
-                    .body(&format!("Completed in {}", nicely_formatted))
-                    .show_async()
-                    .await,
+                show_notification(
+                    &format!("Backup complete for {}", profile_name),
+                    &format!("Completed in {}", nicely_formatted),
+                    SHORT_NOTIFICATION_DURATION
+                )
+                .await,
                 "Failed to show notification: {}"
             );
         }
@@ -100,6 +100,7 @@ pub(crate) async fn create_backup_with_notification(
     create_backup_internal(profile, progress_channel, completion_semaphore).await?;
     Ok(join_handle)
 }
+
 pub(crate) async fn create_backup(
     profile: &Profile,
     progress_channel: mpsc::Sender<CommandResponse>,
@@ -277,12 +278,12 @@ pub(crate) async fn check_with_notification(repo: &Repository) -> BorgResult<boo
         .await?;
     if !exit.success() {
         error!("Verification failed for repository: {}", repo);
-        Notification::new()
-            .summary(&format!("Verification Failed for {}!", repo))
-            .body("Please check BorgTUI's logs for more information.")
-            .timeout(FAILURE_NOTIFICATION_DURATION)
-            .show_async()
-            .await?;
+        show_notification(
+            &format!("Verification Failed for {}!", repo),
+            "Please check BorgTUI's logs for more information.",
+            EXTENDED_NOTIFICATION_DURATION,
+        )
+        .await?;
     } else {
         info!("Verification succeeded for repository: {}", repo);
     }

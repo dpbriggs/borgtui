@@ -6,7 +6,10 @@ use std::{
     path::PathBuf,
 };
 
-pub(crate) const FAILURE_NOTIFICATION_DURATION: i32 = 60_000; // 1 min
+pub(crate) const EXTENDED_NOTIFICATION_DURATION: std::time::Duration =
+    std::time::Duration::from_secs(60);
+pub(crate) const SHORT_NOTIFICATION_DURATION: std::time::Duration =
+    std::time::Duration::from_secs(15);
 
 /// Send a CommandResponse::Info in a channel.
 macro_rules! send_info {
@@ -25,6 +28,7 @@ macro_rules! send_info {
     };
 }
 use glob::Pattern;
+use notify_rust::{Notification, Timeout};
 pub(crate) use send_info;
 
 /// Send a CommandResponse::Info in a channel.
@@ -258,4 +262,19 @@ impl DirectoryFinder {
             self.num_updates,
         ))
     }
+}
+
+pub(crate) async fn show_notification<I: Into<Timeout>>(
+    summary: &str,
+    body: &str,
+    duration: I,
+) -> BorgResult<()> {
+    Notification::new()
+        .summary(summary)
+        .subtitle("BorgTUI")
+        .body(body)
+        .timeout(duration)
+        .show_async()
+        .await?;
+    Ok(())
 }

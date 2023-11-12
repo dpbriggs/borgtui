@@ -7,12 +7,11 @@ use anyhow::{anyhow, bail, Context};
 use borgbackup::asynchronous::CreateProgress;
 use chrono::Duration;
 use notify::Watcher;
-use notify_rust::Notification;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
-use types::{log_on_error, DirectoryFinder, FAILURE_NOTIFICATION_DURATION};
+use types::{log_on_error, show_notification, DirectoryFinder, EXTENDED_NOTIFICATION_DURATION};
 use walkdir::WalkDir;
 
 use crate::borgtui::{BorgTui, Command, CommandResponse};
@@ -561,12 +560,12 @@ async fn handle_action(
             } else {
                 "Backup Verification FAILED!"
             };
-            Notification::new()
-                .summary(title)
-                .body(&format!("Profile: {}", profile.name()))
-                .timeout(FAILURE_NOTIFICATION_DURATION)
-                .show_async()
-                .await?;
+            show_notification(
+                title,
+                &format!("Profile: {}", profile.name()),
+                EXTENDED_NOTIFICATION_DURATION,
+            )
+            .await?;
             Ok(())
         }
         Action::AddProfile { name } => {
