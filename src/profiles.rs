@@ -200,6 +200,7 @@ impl Repository {
         archive_name: &str,
         backup_paths: &[String],
         excludes: &[String],
+        exclude_caches: bool,
     ) -> BorgResult<CreateOptions> {
         let mut create_options = CreateOptions::new(
             self.path.clone(),
@@ -209,6 +210,7 @@ impl Repository {
         );
         create_options.passphrase = self.get_passphrase()?;
         create_options.excludes = excludes.iter().cloned().map(Pattern::Shell).collect();
+        create_options.exclude_caches = exclude_caches;
         Ok(create_options)
     }
 }
@@ -242,12 +244,19 @@ const fn default_action_timeout_seconds() -> u64 {
     30
 }
 
+// Necessary for serde(default)
+const fn default_exclude_caches() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Profile {
     name: String,
     backup_paths: Vec<PathBuf>,
     #[serde(default)]
     exclude_patterns: Vec<String>,
+    #[serde(default = "default_exclude_caches")]
+    exclude_caches: bool,
     #[serde(default)]
     prune_options: PruneOptions,
     #[serde(default = "default_action_timeout_seconds")]
@@ -280,6 +289,7 @@ impl Profile {
         Self {
             name: name.to_string(),
             exclude_patterns: vec![],
+            exclude_caches: true,
             backup_paths: vec![],
             prune_options: Default::default(),
             repos: vec![],
@@ -374,6 +384,10 @@ impl Profile {
         &self.exclude_patterns
     }
 
+    pub(crate) fn exclude_caches(&self) -> bool {
+        self.exclude_caches
+    }
+
     pub(crate) fn serialize(&self) -> BorgResult<String> {
         serde_json::to_string_pretty(self)
             .with_context(|| format!("Failed to serialize profile {}", self.name()))
@@ -403,7 +417,12 @@ impl Profile {
             .map(|path| format!("'{}'", path.to_string_lossy()))
             .collect::<Vec<String>>();
         for repo in self.active_repositories() {
-            match repo.create_options(&archive_name, &backup_paths, self.exclude_patterns()) {
+            match repo.create_options(
+                &archive_name,
+                &backup_paths,
+                self.exclude_patterns(),
+                self.exclude_caches(),
+            ) {
                 Ok(create_option) => create_options_list.push((create_option, repo.clone())),
                 Err(e) => tracing::error!(
                     "Failed to make create options for {} in {}: {}",
