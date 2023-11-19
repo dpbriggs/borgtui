@@ -1406,7 +1406,7 @@ impl BorgTui {
         .collect::<Vec<_>>();
         let areas = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(backup_constraints.as_ref())
+            .constraints(backup_constraints)
             .split(area);
         self.profile
             .repositories()
@@ -1493,7 +1493,7 @@ impl BorgTui {
         .collect::<Vec<_>>();
         let areas = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(backup_constraints.as_ref())
+            .constraints(backup_constraints)
             .split(area);
         for ((repo_name, list_archive, repo_disabled), area) in
             repos_with_archives.into_iter().zip(areas.as_ref())
