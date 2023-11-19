@@ -22,7 +22,7 @@ pub(crate) struct Args {
 
     /// The profile to use. If not specified, the default profile
     /// will be used.
-    #[arg(env, short = 'p', long = "profile")]
+    #[arg(global = true, env, short = 'p', long = "profile")]
     pub(crate) borgtui_profile: Option<String>,
 
     /// Watch for changes in the profile and automatically reload on modify.
