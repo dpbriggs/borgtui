@@ -22,7 +22,7 @@ BorgTUI is available on the AUR as [[https://aur.archlinux.org/packages/borgtui-
 
 *** Manual Installation
 
-Please see the [[#manual-installation][Manual Installation]] section in the appendix.
+Please see the [[#manual-installation-1][Manual Installation]] section in the appendix.
 
 ** Quick Start Guide
 
