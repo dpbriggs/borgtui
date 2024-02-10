@@ -354,6 +354,7 @@ struct MountPopup {
     num_list_archives: usize,
     is_done: bool,
 }
+
 impl MountPopup {
     fn new(is_repo: bool) -> Self {
         let state = if is_repo {
@@ -389,6 +390,7 @@ impl MountPopup {
                 }));
         }
     }
+
     fn handle_key_repo_or_archive(&mut self, key: KeyEvent) {
         let res = self.input.handle_key(
             key,
