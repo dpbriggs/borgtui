@@ -276,13 +276,15 @@ impl Profile {
     pub(crate) async fn try_open_profile_or_create_default(
         profile: &Option<String>,
     ) -> BorgResult<Self> {
-        match profile {
-            Some(profile_name) => Profile::open_profile(profile_name)
-                .await
-                .with_context(|| format!("Failed to open profile {}", profile_name))?
-                .ok_or_else(|| anyhow::anyhow!("Profile {} does not exist", profile_name)),
-            None => Profile::open_or_create_default_profile().await,
-        }
+        let profile_name = profile.as_ref().map(|s| s.as_str());
+        Profile::open_or_create_profile(profile_name)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to open profile! {}",
+                    profile_name.unwrap_or(Self::DEFAULT_PROFILE_NAME)
+                )
+            })
     }
 
     fn blank(name: &str) -> Self {
@@ -297,11 +299,12 @@ impl Profile {
         }
     }
 
-    pub(crate) async fn open_or_create_default_profile() -> BorgResult<Self> {
-        if let Some(profile) = Self::open_profile(Self::DEFAULT_PROFILE_NAME).await? {
+    pub(crate) async fn open_or_create_profile(profile: Option<&str>) -> BorgResult<Self> {
+        let profile_str = profile.unwrap_or(Self::DEFAULT_PROFILE_NAME);
+        if let Some(profile) = Self::open_profile(profile_str).await? {
             Ok(profile)
         } else {
-            Self::create_profile(Self::DEFAULT_PROFILE_NAME).await
+            Self::create_profile(profile_str).await
         }
     }
 

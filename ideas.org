@@ -69,6 +69,8 @@ CLOSED: [2023-11-03 Fri 13:57]
 CLOSED: [2023-11-03 Fri 14:10]
 ** DONE Have a --latest flag for listing archives
 CLOSED: [2023-11-04 Sat 10:42]
+** DONE Using =init= on a new profile should make that profile
+CLOSED: [2024-02-10 Sat 19:46]
 ** TODO Have a cursor in the profiles screen so you can interact and edit them
 ** TODO Update the README to document the project
 ** TODO Add the ability to move the cursor when adding projects by CLI
@@ -77,6 +79,5 @@ CLOSED: [2023-11-04 Sat 10:42]
 ** TODO Check if a file exists when using set-password with a keyfile
 ** TODO Fix how notifications are handled in check (there's several in different places)
 ** TODO Make a generic notifications function
-** TODO Using =init= on a new profile should make that profile
 ** TODO Suggest a canonicalized path in the "add file path" popup
 ** TODO BUG: Mount points aren't sorted in most recent order
