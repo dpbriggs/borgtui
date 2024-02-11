@@ -289,7 +289,7 @@ fn watch_profile_for_changes(
 }
 
 async fn setup_tui(profile: Option<String>, watch_profile: bool) -> BorgResult<JoinHandle<()>> {
-    let profile = Profile::try_open_profile_or_create_default(&profile).await?;
+    let profile = Profile::open_or_create(&profile).await?;
     let (command_send, mut command_recv) = mpsc::channel::<Command>(QUEUE_SIZE);
     let (response_send, response_recv) = mpsc::channel::<CommandResponse>(QUEUE_SIZE);
 
@@ -404,16 +404,16 @@ async fn handle_action(
             location,
             rsh,
         } => {
-            let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let mut profile = Profile::open_or_create(&profile_name).await?;
             let borg_passphrase = passphrase_loc.get_passphrase()?;
             borg::init(borg_passphrase.clone(), location.clone(), rsh.clone()).await?;
             profile.add_repository(location.clone(), passphrase_loc, rsh)?;
             profile.save_profile().await?;
-            info!("Added repo: {}", location);
+            info!("Initialized Repository '{}' in {}", location, profile);
             Ok(())
         }
         Action::Create => {
-            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let profile = Profile::open_or_create(&profile_name).await?;
             info!("Creating backup for profile {}", profile);
             let handle =
                 borg::create_backup_with_notification(&profile, command_response_send).await?;
@@ -421,14 +421,14 @@ async fn handle_action(
             Ok(())
         }
         Action::Add { directory } => {
-            let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let mut profile = Profile::open_or_create(&profile_name).await?;
             profile.add_backup_path(directory.clone()).await?;
             profile.save_profile().await?;
             info!("Added {} to profile {}", directory.display(), profile);
             Ok(())
         }
         Action::Remove { directory } => {
-            let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let mut profile = Profile::open_or_create(&profile_name).await?;
             profile.remove_backup_path(&directory);
             profile.save_profile().await?;
             info!("Removed {} from profile {}", directory.display(), profile);
@@ -440,7 +440,7 @@ async fn handle_action(
             rsh,
         } => {
             // TODO: Check if repo is valid (maybe once "borg info" or something works)
-            let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let mut profile = Profile::open_or_create(&profile_name).await?;
             if profile.has_repository(&repository) {
                 bail!(
                     "Repository {} already exists in profile {}",
@@ -458,7 +458,7 @@ async fn handle_action(
             all,
             count,
         } => {
-            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let profile = Profile::open_or_create(&profile_name).await?;
             let timeout_duration_secs = profile.action_timeout_seconds() as i64;
             for repo in profile.active_repositories().filter(|repo| {
                 repository
@@ -493,7 +493,7 @@ async fn handle_action(
             Ok(())
         }
         Action::ListRepos => {
-            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let profile = Profile::open_or_create(&profile_name).await?;
             for repo in profile.repositories() {
                 let mut extra_info = "";
                 if repo.disabled() {
@@ -507,7 +507,7 @@ async fn handle_action(
             repo,
             passphrase_loc,
         } => {
-            let mut profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let mut profile = Profile::open_or_create(&profile_name).await?;
             let borg_passphrase = passphrase_loc.get_passphrase()?;
             let encryption = Encryption::from_passphrase_loc(passphrase_loc)?;
             profile.update_repository_password(&repo, encryption.clone(), borg_passphrase)?;
@@ -516,7 +516,7 @@ async fn handle_action(
             Ok(())
         }
         Action::Compact => {
-            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let profile = Profile::open_or_create(&profile_name).await?;
             for repo in profile.active_repositories() {
                 borg::compact(repo, command_response_send.clone()).await?;
                 info!("Finished compacting {}", repo);
@@ -524,7 +524,7 @@ async fn handle_action(
             Ok(())
         }
         Action::Prune => {
-            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let profile = Profile::open_or_create(&profile_name).await?;
             for repo in profile.active_repositories() {
                 borg::prune(repo, profile.prune_options(), command_response_send.clone()).await?;
                 info!("Finished pruning {}", repo);
@@ -532,7 +532,7 @@ async fn handle_action(
             Ok(())
         }
         Action::Check => {
-            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let profile = Profile::open_or_create(&profile_name).await?;
             let check_semaphore = Arc::new(Semaphore::new(0));
             let successful = Arc::new(AtomicBool::new(true));
             for repo in profile.active_repositories() {
@@ -578,7 +578,14 @@ async fn handle_action(
                     e
                 ),
             };
-            info!("Created {}", profile);
+            info!(
+                "Created {} ({})",
+                profile,
+                profile
+                    .profile_path()
+                    .unwrap_or("unknown_path".into())
+                    .to_string_lossy()
+            );
             Ok(())
         }
         Action::Mount {
@@ -586,7 +593,7 @@ async fn handle_action(
             mountpoint,
             do_not_open_in_gui_file_manager,
         } => {
-            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let profile = Profile::open_or_create(&profile_name).await?;
             let repo = profile.find_repo_from_mount_src(&repository_path)?;
             borg::mount(&repo, repository_path, mountpoint.clone()).await?;
             if !do_not_open_in_gui_file_manager {
@@ -607,7 +614,7 @@ async fn handle_action(
             timer,
             check_unit,
         } => {
-            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let profile = Profile::open_or_create(&profile_name).await?;
             let (action, calendar) = if check_unit {
                 ("check", "monthly")
             } else {
@@ -649,7 +656,7 @@ async fn handle_action(
         }
 
         Action::ConfigPath => {
-            let profile = Profile::try_open_profile_or_create_default(&profile_name).await?;
+            let profile = Profile::open_or_create(&profile_name).await?;
             println!(
                 "{}",
                 Profile::profile_path_for_name(profile.name())?.to_string_lossy()

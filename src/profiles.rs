@@ -273,18 +273,16 @@ impl std::fmt::Display for Profile {
 
 impl Profile {
     pub(crate) const DEFAULT_PROFILE_NAME: &'static str = "default";
-    pub(crate) async fn try_open_profile_or_create_default(
-        profile: &Option<String>,
-    ) -> BorgResult<Self> {
-        let profile_name = profile.as_ref().map(|s| s.as_str());
-        Profile::open_or_create_profile(profile_name)
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to open profile! {}",
-                    profile_name.unwrap_or(Self::DEFAULT_PROFILE_NAME)
-                )
-            })
+    pub(crate) async fn open_or_create(profile: &Option<String>) -> BorgResult<Self> {
+        let profile_name = profile
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or(Self::DEFAULT_PROFILE_NAME);
+        if let Some(profile) = Self::open_profile(profile_name).await? {
+            Ok(profile)
+        } else {
+            Self::create_profile(profile_name).await
+        }
     }
 
     fn blank(name: &str) -> Self {
@@ -299,18 +297,20 @@ impl Profile {
         }
     }
 
-    pub(crate) async fn open_or_create_profile(profile: Option<&str>) -> BorgResult<Self> {
-        let profile_str = profile.unwrap_or(Self::DEFAULT_PROFILE_NAME);
-        if let Some(profile) = Self::open_profile(profile_str).await? {
-            Ok(profile)
-        } else {
-            Self::create_profile(profile_str).await
-        }
-    }
-
     pub(crate) async fn create_profile(name: &str) -> BorgResult<Self> {
+        if let Ok(Some(_)) = Self::open_profile(name).await {
+            anyhow::bail!("Cannot create profile '{}' as it already exists!", name);
+        }
         let profile = Self::blank(name);
         profile.save_profile().await?;
+        info!(
+            "Created {} ({})",
+            profile,
+            profile
+                .profile_path()
+                .unwrap_or("unknown_path".into())
+                .to_string_lossy()
+        );
         Ok(profile)
     }
 
