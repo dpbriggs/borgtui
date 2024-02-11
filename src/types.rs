@@ -239,7 +239,7 @@ impl DirectoryFinder {
     }
 
     pub(crate) fn update_guess(&mut self, file_path_fragment: &str) -> BorgResult<()> {
-        let path = PathBuf::try_from(file_path_fragment)?;
+        let path = PathBuf::from(file_path_fragment);
         self.seed_from_directory(path, Self::UPDATE_GUESS_MAX_DEPTH);
         self.num_updates += 1;
         Ok(())
@@ -251,7 +251,7 @@ impl DirectoryFinder {
         max_results: usize,
     ) -> BorgResult<(Vec<PathBuf>, usize)> {
         let exclude_dot_files = !starting_fragment.contains('.');
-        let path = PathBuf::try_from(starting_fragment)?;
+        let path = PathBuf::from(starting_fragment);
         Ok((
             self.known_directories
                 .range(path..)

@@ -206,14 +206,12 @@ impl InputFieldWithSuggestions {
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
                 {
-                    if let Ok(path) = PathBuf::try_from(self.input_buffer.as_str()) {
-                        self.input_buffer = path
-                            .parent()
-                            .map(|p| p.to_string_lossy().to_string())
-                            .unwrap_or_else(String::new);
-                        if !self.input_buffer.ends_with('/') {
-                            self.input_buffer.push('/');
-                        }
+                    self.input_buffer = PathBuf::from(self.input_buffer.as_str())
+                        .parent()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(String::new);
+                    if !self.input_buffer.ends_with('/') {
+                        self.input_buffer.push('/');
                     }
                 } else {
                     self.input_buffer.pop();
@@ -997,7 +995,7 @@ impl BorgTui {
         self.command_channel
             .blocking_send(Command::UpdateProfileAndSave(
                 self.profile.clone(),
-                ProfileOperation::AddBackupPath(PathBuf::try_from(path)?),
+                ProfileOperation::AddBackupPath(PathBuf::from(path)),
                 signal_success,
             ))?;
         Ok(())
