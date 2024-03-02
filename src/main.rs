@@ -560,12 +560,9 @@ async fn handle_action(
             } else {
                 "Backup Verification FAILED!"
             };
-            show_notification(
-                title,
-                &format!("Profile: {}", profile.name()),
-                EXTENDED_NOTIFICATION_DURATION,
-            )
-            .await?;
+            let message = format!("Profile: {}", profile.name());
+            info!("{}", message);
+            show_notification(title, &message, EXTENDED_NOTIFICATION_DURATION).await?;
             Ok(())
         }
         Action::AddProfile { name } => {
