@@ -531,11 +531,21 @@ async fn handle_action(
             }
             Ok(())
         }
-        Action::Check => {
+        Action::Check { only_these_repos } => {
             let profile = Profile::open_or_create(&profile_name).await?;
             let check_semaphore = Arc::new(Semaphore::new(0));
             let successful = Arc::new(AtomicBool::new(true));
             for repo in profile.active_repositories() {
+                let should_check = only_these_repos
+                    .as_ref()
+                    .map(|repos_to_check| repos_to_check.contains(&repo.path()))
+                    .unwrap_or(true);
+                if !should_check {
+                    tracing::info!("Skipping verification of {}", repo.path());
+                    check_semaphore.add_permits(1);
+                    continue;
+                }
+                tracing::info!("Starting verification of {}", repo.path());
                 let successful_clone = successful.clone();
                 let check_semaphore_clone = check_semaphore.clone();
                 let repo_clone = repo.clone();

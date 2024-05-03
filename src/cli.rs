@@ -158,7 +158,10 @@ pub(crate) enum Action {
     /// Verify the integrity of all active repositories. This usually takes a long time.
     ///
     /// It will display a notification and log on failure.
-    Check,
+    Check {
+        /// If specified, only check these repositories. Consider using `list-repos` to get repo urls.
+        only_these_repos: Option<Vec<String>>,
+    },
     /// Create a systemd unit to create a backup
     ///
     /// If `--install` is specified it will install the unit as a user unit under
