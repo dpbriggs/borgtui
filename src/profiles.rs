@@ -242,6 +242,7 @@ impl Repository {
         prune_options: PruneOptions,
         progress_channel: tokio::sync::mpsc::Sender<CommandResponse>,
     ) -> BorgResult<()> {
+        info!("Starting to prune {}", self);
         self.backup_provider()
             .prune(self, prune_options, progress_channel)
             .await
@@ -432,11 +433,7 @@ impl Profile {
                     elapsed_duration.as_secs() / 60 % 60,
                     elapsed_duration.as_secs() % 60
                 );
-                tracing::info!(
-                    "Completed backup for self {} in {}",
-                    self_name,
-                    nicely_formatted
-                );
+                tracing::info!("Completed backup for {} in {}", self_name, nicely_formatted);
                 log_on_error!(
                     show_notification(
                         &format!("Backup complete for {}", self_name),

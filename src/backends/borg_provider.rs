@@ -152,8 +152,10 @@ impl BackupProvider for BorgProvider {
                     .await;
             completion_semaphore_clone.add_permits(1);
             match res {
-                Ok(c) => info!("Archive created successfully: {:?}", c.archive.stats),
-                // TODO: Send this error message along that channel
+                Ok(c) => info!(
+                    "Archive created successfully in repo {}: {:?}",
+                    c.repository.location, c.archive.stats
+                ),
                 Err(e) => send_error!(
                     progress_channel_clone,
                     format!(
