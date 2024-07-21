@@ -4,18 +4,27 @@ use std::{
     os::unix::prelude::PermissionsExt,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Instant,
 };
 
-use crate::{cli::PassphraseSource, types::BorgResult};
+use crate::{
+    backends::{backup_provider::BackupProvider, borg_provider::BorgProvider},
+    borgtui::CommandResponse,
+    cli::PassphraseSource,
+    types::{
+        log_on_error, show_notification, BorgResult, RepositoryArchives,
+        SHORT_NOTIFICATION_DURATION,
+    },
+};
 use anyhow::anyhow;
 use anyhow::{bail, Context};
-use borgbackup::common::{CommonOptions, CreateOptions, Pattern};
+use borgbackup::common::CommonOptions;
 use keyring::Entry;
 use std::fs;
 use tracing::info;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex, Semaphore};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct Passphrase(String);
@@ -90,6 +99,16 @@ impl Encryption {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+pub(crate) enum RepositoryKind {
+    Borg,
+    Rustic,
+}
+
+const fn default_repository_kind() -> RepositoryKind {
+    RepositoryKind::Borg
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Repository {
     pub(crate) path: String,
@@ -99,6 +118,8 @@ pub(crate) struct Repository {
     encryption: Encryption,
     #[serde(default)]
     disabled: bool,
+    #[serde(default = "default_repository_kind")]
+    kind: RepositoryKind,
     #[serde(skip)]
     pub(crate) lock: Arc<Mutex<()>>,
 }
@@ -119,30 +140,36 @@ fn get_keyring_entry(repo_path: &str) -> BorgResult<Entry> {
 }
 
 impl Repository {
-    pub(crate) fn new(path: String, encryption: Encryption, rsh: Option<String>) -> Self {
+    pub(crate) fn new(
+        path: String,
+        encryption: Encryption,
+        kind: RepositoryKind,
+        rsh: Option<String>,
+    ) -> Self {
         Self {
             path,
             encryption,
+            kind,
             rsh,
             disabled: false,
             lock: Default::default(),
         }
     }
 
-    pub(crate) fn get_passphrase(&self) -> BorgResult<Option<String>> {
+    pub(crate) fn get_passphrase(&self) -> BorgResult<Option<Passphrase>> {
         match &self.encryption {
             Encryption::None => Ok(None),
-            Encryption::Raw(passphrase) => Ok(Some(passphrase.inner())),
+            Encryption::Raw(passphrase) => Ok(Some(passphrase.clone())),
             Encryption::Keyring => get_keyring_entry(&self.path)?
                 .get_password()
                 .map_err(|e| anyhow::anyhow!("Failed to get passphrase from keyring: {}", e))
-                .map(Some),
+                .map(|v| Some(Passphrase(v))),
             Encryption::Keyfile(filepath) => {
                 let passphrase = fs::read_to_string(filepath)
                     .with_context(|| format!("Failed to read {filepath:?}. Does the file exist?"))?
                     .trim()
                     .to_string();
-                Ok(Some(passphrase))
+                Ok(Some(Passphrase(passphrase)))
             }
         }
     }
@@ -188,6 +215,49 @@ impl Repository {
         self.rsh.clone()
     }
 
+    pub(crate) async fn list_archives(&self) -> BorgResult<RepositoryArchives> {
+        self.backup_provider().list_archives(self).await
+    }
+
+    pub(crate) async fn init(&self) -> BorgResult<()> {
+        self.backup_provider()
+            .init_repo(self.path(), self.get_passphrase()?, self.rsh())
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn mount(
+        &self,
+        given_repository_path: String,
+        mountpoint: PathBuf,
+    ) -> BorgResult<()> {
+        self.backup_provider()
+            .mount(self, given_repository_path, mountpoint)
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn prune(
+        &self,
+        prune_options: PruneOptions,
+        progress_channel: tokio::sync::mpsc::Sender<CommandResponse>,
+    ) -> BorgResult<()> {
+        self.backup_provider()
+            .prune(self, prune_options, progress_channel)
+            .await
+    }
+
+    pub(crate) async fn compact(
+        &self,
+        progress_channel: tokio::sync::mpsc::Sender<CommandResponse>,
+    ) -> BorgResult<()> {
+        self.backup_provider().compact(self, progress_channel).await
+    }
+
+    pub(crate) async fn check(&self) -> BorgResult<bool> {
+        self.backup_provider().check(self).await
+    }
+
     pub(crate) fn common_options(&self) -> CommonOptions {
         CommonOptions {
             rsh: self.rsh.clone(),
@@ -195,23 +265,11 @@ impl Repository {
         }
     }
 
-    pub(crate) fn create_options(
-        &self,
-        archive_name: &str,
-        backup_paths: &[String],
-        excludes: &[String],
-        exclude_caches: bool,
-    ) -> BorgResult<CreateOptions> {
-        let mut create_options = CreateOptions::new(
-            self.path.clone(),
-            archive_name.to_string(),
-            backup_paths.to_vec(),
-            vec![],
-        );
-        create_options.passphrase = self.get_passphrase()?;
-        create_options.excludes = excludes.iter().cloned().map(Pattern::Shell).collect();
-        create_options.exclude_caches = exclude_caches;
-        Ok(create_options)
+    pub(crate) fn backup_provider(&self) -> Box<dyn BackupProvider> {
+        match self.kind {
+            RepositoryKind::Borg => Box::new(BorgProvider {}),
+            RepositoryKind::Rustic => todo!(),
+        }
     }
 }
 
@@ -351,6 +409,85 @@ impl Profile {
             .cloned()
     }
 
+    pub(crate) async fn create_backup_with_notification(
+        &self,
+        progress_channel: mpsc::Sender<CommandResponse>,
+    ) -> BorgResult<tokio::task::JoinHandle<()>> {
+        let completion_semaphore = Arc::new(Semaphore::new(0));
+        let num_active_repos = self.num_active_repos();
+        let self_name = format!("{}", self);
+        let completion_semaphore_clone = completion_semaphore.clone();
+        let join_handle = tokio::spawn(async move {
+            let start_time = Instant::now();
+            if let Err(e) = completion_semaphore_clone
+                .acquire_many(num_active_repos as u32)
+                .await
+            {
+                tracing::error!("Failed to wait on completion semaphore: {}", e);
+            } else {
+                let elapsed_duration = start_time.elapsed();
+                let nicely_formatted = format!(
+                    "{:0>2}:{:0>2}:{:0>2}",
+                    elapsed_duration.as_secs() / 60 / 60,
+                    elapsed_duration.as_secs() / 60 % 60,
+                    elapsed_duration.as_secs() % 60
+                );
+                tracing::info!(
+                    "Completed backup for self {} in {}",
+                    self_name,
+                    nicely_formatted
+                );
+                log_on_error!(
+                    show_notification(
+                        &format!("Backup complete for {}", self_name),
+                        &format!("Completed in {}", nicely_formatted),
+                        SHORT_NOTIFICATION_DURATION
+                    )
+                    .await,
+                    "Failed to show notification: {}"
+                );
+            }
+        });
+        self.create_backup_internal(progress_channel, completion_semaphore)
+            .await?;
+        Ok(join_handle)
+    }
+
+    pub(crate) async fn create_backup(
+        &self,
+        progress_channel: mpsc::Sender<CommandResponse>,
+    ) -> BorgResult<()> {
+        self.create_backup_internal(progress_channel, Arc::new(Semaphore::new(0)))
+            .await
+    }
+
+    async fn create_backup_internal(
+        &self,
+        progress_channel: mpsc::Sender<CommandResponse>,
+        completion_semaphore: Arc<Semaphore>,
+    ) -> BorgResult<()> {
+        let archive_name = format!(
+            "{}-{}",
+            self.name(),
+            chrono::Local::now().format("%Y-%m-%d:%H:%M:%S")
+        );
+        for repo in self.active_repositories() {
+            let backup_provider = repo.backup_provider();
+            backup_provider
+                .create_backup(
+                    archive_name.clone(),
+                    self.backup_paths(),
+                    self.exclude_patterns(),
+                    self.exclude_caches(),
+                    repo.clone(),
+                    progress_channel.clone(),
+                    completion_semaphore.clone(),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn active_repositories(&self) -> impl Iterator<Item = &Repository> {
         self.repositories().iter().filter(|repo| !repo.disabled)
     }
@@ -373,6 +510,10 @@ impl Profile {
 
     pub(crate) fn num_repos(&self) -> usize {
         self.repos.len()
+    }
+
+    pub(crate) fn num_active_repos(&self) -> usize {
+        self.active_repositories().count()
     }
 
     pub(crate) fn action_timeout_seconds(&self) -> u64 {
@@ -401,41 +542,6 @@ impl Profile {
         match op {
             ProfileOperation::AddBackupPath(path) => self.add_backup_path(path).await,
         }
-    }
-
-    pub(crate) fn borg_create_options(
-        &self,
-        archive_name: String,
-    ) -> BorgResult<Vec<(CreateOptions, Repository)>> {
-        if self.repos.is_empty() {
-            return Err(anyhow::anyhow!(
-                "No repositories configured for profile {}",
-                self.name
-            ));
-        }
-        let mut create_options_list = Vec::new();
-        let backup_paths = self
-            .backup_paths
-            .iter()
-            .map(|path| format!("'{}'", path.to_string_lossy()))
-            .collect::<Vec<String>>();
-        for repo in self.active_repositories() {
-            match repo.create_options(
-                &archive_name,
-                &backup_paths,
-                self.exclude_patterns(),
-                self.exclude_caches(),
-            ) {
-                Ok(create_option) => create_options_list.push((create_option, repo.clone())),
-                Err(e) => tracing::error!(
-                    "Failed to make create options for {} in {}: {}",
-                    self,
-                    repo,
-                    e
-                ),
-            };
-        }
-        Ok(create_options_list)
     }
 
     pub(crate) fn profile_path_for_name(name: &str) -> BorgResult<PathBuf> {
@@ -472,34 +578,8 @@ impl Profile {
         self.repos.iter().any(|r| r.path == path)
     }
 
-    pub(crate) fn add_repository(
-        &mut self,
-        path: String,
-        passphrase_loc: PassphraseSource,
-        rsh: Option<String>,
-    ) -> BorgResult<()> {
-        let borg_passphrase = passphrase_loc.get_passphrase();
-        let encryption = Encryption::from_passphrase_loc(passphrase_loc)?;
-        // Actually insert the password into the keyring
-        // TODO: Don't do this twice (maybe use a builder pattern when making a Repository<> for the first time.)
-        if let Encryption::Keyring = encryption {
-            info!("Storing BORG_PASSPHRASE into the keyring..");
-            let entry = get_keyring_entry(&path)?;
-            let passphrase = borg_passphrase?.ok_or_else(|| {
-                anyhow::anyhow!("Keyfile borg passphrase selected but no BORG_PASSPHRASE provided!")
-            })?;
-            entry
-                .set_password(passphrase.inner_ref())
-                .with_context(|| {
-                    format!(
-                        "Failed to set password in keyring for repository {} in profile {}",
-                        path, &self
-                    )
-                })?;
-            assert!(entry.get_password().is_ok());
-        }
-        self.repos.push(Repository::new(path, encryption, rsh));
-        Ok(())
+    pub(crate) fn add_repository(&mut self, repo: Repository) {
+        self.repos.push(repo);
     }
 
     // TODO: Rewrite this in terms of PassphraseSource

@@ -4,22 +4,23 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use anyhow::{anyhow, bail, Context};
-use borgbackup::asynchronous::CreateProgress;
+use backends::borg_provider::hack_unmount;
 use chrono::Duration;
 use notify::Watcher;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
+use types::BackupCreationProgress;
 use types::{log_on_error, show_notification, DirectoryFinder, EXTENDED_NOTIFICATION_DURATION};
 use walkdir::WalkDir;
 
 use crate::borgtui::{BorgTui, Command, CommandResponse};
 use crate::cli::Action;
-use crate::profiles::{Encryption, Profile};
+use crate::profiles::{Encryption, Profile, Repository, RepositoryKind};
 use crate::types::{send_error, send_info, BorgResult, PrettyBytes};
 
-mod borg;
+mod backends;
 mod borgtui;
 mod cli;
 mod profiles;
@@ -89,7 +90,7 @@ async fn handle_tui_command(
                 format!("Starting backup of profile {}", &profile),
                 "Failed to send backup start signal: {}"
             );
-            borg::create_backup(&profile, command_response_send).await?;
+            profile.create_backup(command_response_send).await?;
             Ok(false)
         }
         Command::UpdateProfileAndSave(mut profile, op, signal_success) => {
@@ -128,7 +129,7 @@ async fn handle_tui_command(
         }
         Command::ListArchives(repo) => {
             tokio::spawn(async move {
-                match borg::list_archives(&repo).await {
+                match repo.list_archives().await {
                     Ok(res) => {
                         if let Err(e) = command_response_send
                             .send(CommandResponse::ListArchiveResult(res))
@@ -151,7 +152,7 @@ async fn handle_tui_command(
                     format!("Compacting {}", repo),
                     "Failed to send start compacting info: {}"
                 );
-                if let Err(e) = borg::compact(&repo, command_response_send.clone()).await {
+                if let Err(e) = repo.compact(command_response_send.clone()).await {
                     send_error!(command_response_send, format!("Failed to compact: {}", e));
                 } else {
                     send_info!(command_response_send, format!("Compacted {}", repo));
@@ -166,8 +167,10 @@ async fn handle_tui_command(
                     format!("Pruning {}", repo),
                     "Failed to send start prune info: {}"
                 );
-                if let Err(e) =
-                    borg::prune(&repo, prune_options, command_response_send.clone()).await
+
+                if let Err(e) = repo
+                    .prune(prune_options, command_response_send.clone())
+                    .await
                 {
                     send_error!(command_response_send, format!("Failed to prune: {}", e))
                 } else {
@@ -200,8 +203,9 @@ async fn handle_tui_command(
         Command::Mount(repo, repo_or_archive, mountpoint) => {
             let mountpoint_p = PathBuf::from(mountpoint.clone());
             tokio::spawn(async move {
-                if let Err(e) =
-                    borg::mount(&repo, repo_or_archive.clone(), mountpoint_p.clone()).await
+                if let Err(e) = repo
+                    .mount(repo_or_archive.clone(), mountpoint_p.clone())
+                    .await
                 {
                     send_error!(command_response_send, format!("Failed to mount: {}", e))
                 } else {
@@ -228,7 +232,7 @@ async fn handle_tui_command(
         Command::Unmount(mountpoint) => {
             // TODO: Properly join all of this.
             tokio::spawn(async move {
-                match borg::umount(PathBuf::from(mountpoint.clone())).await {
+                match hack_unmount(PathBuf::from(mountpoint.clone())).await {
                     Ok(_) => {
                         send_info!(
                             command_response_send,
@@ -328,22 +332,22 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
     while let Some(message) = command_response_recv.recv().await {
         match message {
             CommandResponse::CreateProgress(msg) => match msg.create_progress {
-                CreateProgress::Progress {
+                BackupCreationProgress::InProgress {
                     original_size,
                     compressed_size,
                     deduplicated_size,
-                    nfiles,
-                    path,
+                    num_files,
+                    current_path,
                 } => info!(
                     "[{}] {}: {} -> {} -> {} ({} files)",
                     msg.repository,
-                    path,
+                    current_path,
                     PrettyBytes(original_size),
                     PrettyBytes(compressed_size),
                     PrettyBytes(deduplicated_size),
-                    nfiles
+                    num_files
                 ),
-                CreateProgress::Finished => {
+                BackupCreationProgress::Finished => {
                     info!("Finished backup for {}", msg.repository)
                 }
             },
@@ -405,9 +409,15 @@ async fn handle_action(
             rsh,
         } => {
             let mut profile = Profile::open_or_create(&profile_name).await?;
-            let borg_passphrase = passphrase_loc.get_passphrase()?;
-            borg::init(borg_passphrase.clone(), location.clone(), rsh.clone()).await?;
-            profile.add_repository(location.clone(), passphrase_loc, rsh)?;
+            // TODO: Refactor this logic to be cleaner, don't set the keyfile
+            //       when calling Encryption::from_passphrase_loc
+            let encryption = Encryption::from_passphrase_loc(passphrase_loc.clone())?;
+            let passphrase = passphrase_loc.get_passphrase()?;
+            let kind = RepositoryKind::Borg;
+            let mut new_repo = Repository::new(location.clone(), encryption.clone(), kind, rsh);
+            new_repo.set_passphrase(encryption, passphrase)?;
+            new_repo.init().await?;
+            profile.add_repository(new_repo);
             profile.save_profile().await?;
             info!("Initialized Repository '{}' in {}", location, profile);
             Ok(())
@@ -415,8 +425,9 @@ async fn handle_action(
         Action::Create => {
             let profile = Profile::open_or_create(&profile_name).await?;
             info!("Creating backup for profile {}", profile);
-            let handle =
-                borg::create_backup_with_notification(&profile, command_response_send).await?;
+            let handle = profile
+                .create_backup_with_notification(command_response_send)
+                .await?;
             handle.await?;
             Ok(())
         }
@@ -448,7 +459,14 @@ async fn handle_action(
                     profile
                 );
             }
-            profile.add_repository(repository.clone(), passphrase_loc, rsh)?;
+            let kind = RepositoryKind::Borg;
+            let repo = Repository::new(
+                repository.clone(),
+                Encryption::from_passphrase_loc(passphrase_loc)?,
+                kind,
+                rsh,
+            );
+            profile.add_repository(repo);
             profile.save_profile().await?;
             info!("Added repository {} to profile {}", repository, profile);
             Ok(())
@@ -468,7 +486,7 @@ async fn handle_action(
             }) {
                 let list_archives_per_repo = match tokio::time::timeout(
                     Duration::seconds(timeout_duration_secs).to_std().unwrap(),
-                    borg::list_archives(repo),
+                    repo.list_archives(),
                 )
                 .await
                 {
@@ -481,13 +499,12 @@ async fn handle_action(
                         continue;
                     }
                 };
-                let repo = list_archives_per_repo.repository.location;
                 let mut to_skip = 0;
                 if !all {
                     to_skip = list_archives_per_repo.archives.len().saturating_sub(count);
                 }
                 for archives in list_archives_per_repo.archives.iter().skip(to_skip) {
-                    info!("{}::{}", repo, archives.name);
+                    info!("{}::{}", repo.path(), archives.name);
                 }
             }
             Ok(())
@@ -518,7 +535,7 @@ async fn handle_action(
         Action::Compact => {
             let profile = Profile::open_or_create(&profile_name).await?;
             for repo in profile.active_repositories() {
-                borg::compact(repo, command_response_send.clone()).await?;
+                repo.compact(command_response_send.clone()).await?;
                 info!("Finished compacting {}", repo);
             }
             Ok(())
@@ -526,7 +543,8 @@ async fn handle_action(
         Action::Prune => {
             let profile = Profile::open_or_create(&profile_name).await?;
             for repo in profile.active_repositories() {
-                borg::prune(repo, profile.prune_options(), command_response_send.clone()).await?;
+                repo.prune(profile.prune_options(), command_response_send.clone())
+                    .await?;
                 info!("Finished pruning {}", repo);
             }
             Ok(())
@@ -551,7 +569,7 @@ async fn handle_action(
                 let repo_clone = repo.clone();
                 tokio::spawn(async move {
                     let _guard = repo_clone.lock.lock().await;
-                    let res = match borg::check_with_notification(&repo_clone).await {
+                    let res = match repo_clone.check().await {
                         Ok(res) => res,
                         Err(e) => {
                             error!("Verification failed: {e}");
@@ -602,7 +620,7 @@ async fn handle_action(
         } => {
             let profile = Profile::open_or_create(&profile_name).await?;
             let repo = profile.find_repo_from_mount_src(&repository_path)?;
-            borg::mount(&repo, repository_path, mountpoint.clone()).await?;
+            repo.mount(repository_path, mountpoint.clone()).await?;
             if !do_not_open_in_gui_file_manager {
                 if let Err(e) = open_path_in_gui_file_manager(mountpoint) {
                     error!("Failed to open GUI file manager: {}", e);
@@ -611,7 +629,7 @@ async fn handle_action(
             Ok(())
         }
         Action::Umount { mountpoint } => {
-            borg::umount(mountpoint.clone()).await?;
+            hack_unmount(mountpoint.clone()).await?;
             info!("Successfully unmounted {}", mountpoint.to_string_lossy());
             Ok(())
         }

@@ -15,15 +15,16 @@ pub(crate) const SHORT_NOTIFICATION_DURATION: std::time::Duration =
 macro_rules! send_info {
     ($channel:expr, $info_message:expr) => {
         if let Err(e) = $channel.send(CommandResponse::Info($info_message)).await {
-            error!(
+            tracing::error!(
                 "Error occurred while sending info message \"{}\": {}",
-                $info_message, e
+                $info_message,
+                e
             );
         }
     };
     ($channel:expr, $info_message:expr, $error_message:expr) => {
         if let Err(e) = $channel.send(CommandResponse::Info($info_message)).await {
-            error!($error_message, e);
+            tracing::error!($error_message, e);
         }
     };
 }
@@ -35,27 +36,27 @@ pub(crate) use send_info;
 macro_rules! send_error {
     ($channel:expr, $info_message:expr) => {
         if let Err(e) = $channel.send(CommandResponse::Error($info_message)).await {
-            error!(
+            tracing::error!(
                 "Error occurred while sending error message \"{}\": {}",
-                $info_message, e
+                $info_message,
+                e
             );
         }
     };
     ($channel:expr, $info_message:expr, $error_message:expr) => {
         if let Err(e) = $channel.send(CommandResponse::Error($info_message)).await {
-            error!($error_message, e);
+            tracing::error!($error_message, e);
         }
     };
 }
 pub(crate) use send_error;
 
-/// Send a CommandResponse::Info in a channel.
 macro_rules! log_on_error {
     ($result_expr:expr, $log_message:expr) => {
         match $result_expr {
             Ok(res) => res,
             Err(e) => {
-                error!($log_message, e);
+                tracing::error!($log_message, e);
                 return;
             }
         }
@@ -277,4 +278,34 @@ pub(crate) async fn show_notification<I: Into<Timeout>>(
         .show_async()
         .await?;
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum BackupCreationProgress {
+    InProgress {
+        original_size: u64,
+        compressed_size: u64,
+        deduplicated_size: u64,
+        num_files: u64,
+        current_path: String,
+    },
+    Finished,
+}
+
+#[derive(Debug)]
+pub(crate) struct BackupCreateProgress {
+    pub(crate) repository: String,
+    pub(crate) create_progress: BackupCreationProgress,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct Archive {
+    pub(crate) name: String,
+    pub(crate) creation_date: chrono::NaiveDateTime,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RepositoryArchives {
+    pub(crate) path: String,
+    pub(crate) archives: Vec<Archive>,
 }

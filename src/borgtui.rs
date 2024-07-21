@@ -1,8 +1,9 @@
+use crate::profiles::Profile;
 use crate::profiles::{ProfileOperation, Repository};
-use crate::types::{BorgResult, PrettyBytes, RingBuffer};
-use crate::{borg::BorgCreateProgress, profiles::Profile};
-use borgbackup::asynchronous::CreateProgress;
-use borgbackup::output::list::ListRepository;
+use crate::types::{
+    BackupCreateProgress, BackupCreationProgress, BorgResult, PrettyBytes, RepositoryArchives,
+    RingBuffer,
+};
 use crossterm::event::{KeyEvent, KeyModifiers};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -56,8 +57,8 @@ pub(crate) enum Command {
 
 #[derive(Debug)]
 pub(crate) enum CommandResponse {
-    CreateProgress(BorgCreateProgress),
-    ListArchiveResult(ListRepository),
+    CreateProgress(BackupCreateProgress),
+    ListArchiveResult(RepositoryArchives),
     ProfileUpdated(Profile),
     Info(String),
     Error(String),
@@ -372,7 +373,10 @@ impl MountPopup {
         }
     }
 
-    fn update_list_archive_suggestions(&mut self, list_archives: &HashMap<String, ListRepository>) {
+    fn update_list_archive_suggestions(
+        &mut self,
+        list_archives: &HashMap<String, RepositoryArchives>,
+    ) {
         let num_list_archives = list_archives
             .values()
             .map(|list_repo| list_repo.archives.len())
@@ -436,7 +440,7 @@ impl Popup for MountPopup {
         &mut self,
         command_channel: &Sender<Command>,
         directory_suggestions: &[PathBuf],
-        list_archives: &HashMap<String, ListRepository>,
+        list_archives: &HashMap<String, RepositoryArchives>,
     ) -> BorgResult<()> {
         match &self.state {
             MountPopupSelectionState::Repo => {
@@ -551,7 +555,7 @@ impl Popup for AddFileToProfilePopup {
         &mut self,
         command_channel: &Sender<Command>,
         directory_suggestions: &[PathBuf],
-        _list_archives: &HashMap<String, ListRepository>,
+        _list_archives: &HashMap<String, RepositoryArchives>,
     ) -> BorgResult<()> {
         self.input.update_suggestions(
             directory_suggestions
@@ -661,7 +665,7 @@ impl Popup for ConfirmationPopup {
         &mut self,
         _command_channel: &Sender<Command>,
         _directory_suggestions: &[PathBuf],
-        _list_archives: &HashMap<String, ListRepository>,
+        _list_archives: &HashMap<String, RepositoryArchives>,
     ) -> BorgResult<()> {
         Ok(())
     }
@@ -728,7 +732,7 @@ impl Popup for MessagePopup {
         &mut self,
         _command_channel: &Sender<Command>,
         _directory_suggestions: &[PathBuf],
-        _list_archives: &HashMap<String, ListRepository>,
+        _list_archives: &HashMap<String, RepositoryArchives>,
     ) -> BorgResult<()> {
         Ok(())
     }
@@ -752,7 +756,7 @@ trait Popup {
         &mut self,
         command_channel: &Sender<Command>,
         directory_suggestions: &[PathBuf],
-        list_archives: &HashMap<String, ListRepository>,
+        list_archives: &HashMap<String, RepositoryArchives>,
     ) -> BorgResult<()>;
     fn draw(&self, frame: &mut Frame, area: Rect);
     fn is_done(&self) -> bool;
@@ -776,7 +780,7 @@ pub(crate) struct BorgTui {
     user_intent: Vec<UserIntent>,
     // This is not an enum field to make it easier to tab while a backup is in progress.
     backup_state: BackupState,
-    list_archives_state: HashMap<String, ListRepository>,
+    list_archives_state: HashMap<String, RepositoryArchives>,
     directory_suggestions: Vec<PathBuf>,
     directory_suggestions_update_num: usize,
     info_logs: RingBuffer<String, 10>,
@@ -1146,23 +1150,23 @@ impl BorgTui {
             CommandResponse::CreateProgress(progress) => {
                 let repo = progress.repository.clone();
                 match progress.create_progress {
-                    CreateProgress::Progress {
-                        path,
-                        nfiles,
+                    BackupCreationProgress::InProgress {
                         original_size,
                         compressed_size,
                         deduplicated_size,
+                        num_files,
+                        current_path,
                     } => {
                         self.record_create_progress(
                             repo,
-                            path,
-                            nfiles,
+                            current_path,
+                            num_files,
                             original_size,
                             compressed_size,
                             deduplicated_size,
                         );
                     }
-                    CreateProgress::Finished => {
+                    BackupCreationProgress::Finished => {
                         self.backup_state.mark_finished(repo.clone());
                         self.add_info(format!("Finished backing up {}", repo));
                         tracing::info!("Finished backing up {}", repo);
@@ -1174,10 +1178,8 @@ impl BorgTui {
                 self.add_info(info_string)
             }
             CommandResponse::ListArchiveResult(list_archive_result) => {
-                self.list_archives_state.insert(
-                    list_archive_result.repository.location.clone(),
-                    list_archive_result,
-                );
+                self.list_archives_state
+                    .insert(list_archive_result.path.clone(), list_archive_result);
             }
             CommandResponse::SuggestionResults((suggestions, update_num)) => {
                 if self.directory_suggestions_update_num < update_num {
@@ -1469,7 +1471,7 @@ impl BorgTui {
             })
     }
 
-    fn repos_with_archives(&self) -> Vec<(String, Option<ListRepository>, bool)> {
+    fn repos_with_archives(&self) -> Vec<(String, Option<RepositoryArchives>, bool)> {
         self.profile
             .repositories()
             .iter()
@@ -1505,7 +1507,10 @@ impl BorgTui {
                     .rev()
                     .map(|archive| {
                         Row::new([
-                            Cell::from(format!("{}", archive.start.format("%b %d %Y %H:%M:%S"))),
+                            Cell::from(format!(
+                                "{}",
+                                archive.creation_date.format("%b %d %Y %H:%M:%S")
+                            )),
                             Cell::from(archive.name.clone()),
                         ])
                     })
