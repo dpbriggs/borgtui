@@ -1,4 +1,3 @@
-#![allow(unused)]
 use std::path::PathBuf;
 
 use anyhow::anyhow;
@@ -16,7 +15,7 @@ use tracing::info;
 
 use crate::{
     borgtui::CommandResponse,
-    profiles::{Passphrase, Profile, Repository},
+    profiles::{Passphrase, Repository},
     types::{
         send_error, send_info, show_notification, take_repo_lock, Archive, BackupCreateProgress,
         BackupCreationProgress, BorgResult, RepositoryArchives, EXTENDED_NOTIFICATION_DURATION,
@@ -243,7 +242,7 @@ impl BackupProvider for BorgProvider {
         mount_options.passphrase = repo.get_passphrase()?.map(|p| p.inner());
         borg_async::mount(&mount_options, &make_common_options(&repo))
             .await
-            .map_err(|e| anyhow!("Failed to mount repo {}: {}", repo.path(), e));
+            .map_err(|e| anyhow!("Failed to mount repo {}: {}", repo.path(), e))?;
         info!(
             "Successfully mounted {} at {:?}",
             given_repository_path, mountpoint
@@ -251,6 +250,7 @@ impl BackupProvider for BorgProvider {
         Ok(())
     }
 
+    // TODO: Figure out unused
     #[allow(unused)]
     async fn unmount(&self, mountpoint: PathBuf) -> BorgResult<()> {
         borg_async::umount(

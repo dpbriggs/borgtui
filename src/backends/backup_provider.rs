@@ -1,4 +1,3 @@
-#![allow(unused)]
 use crate::types::RepositoryArchives;
 use crate::{
     borgtui::CommandResponse,
@@ -34,6 +33,8 @@ pub(crate) trait BackupProvider: Send {
         given_repository_path: String,
         mountpoint: PathBuf,
     ) -> BorgResult<()>;
+    // TODO: Figure out unmounting
+    #[allow(unused)]
     async fn unmount(&self, mountpoint: PathBuf) -> BorgResult<()>;
     async fn prune(
         &self,
