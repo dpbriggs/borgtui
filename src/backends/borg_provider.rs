@@ -60,6 +60,13 @@ impl From<borg_async::CreateProgress> for BackupCreationProgress {
     }
 }
 
+fn make_common_options(repo: &Repository) -> CommonOptions {
+    CommonOptions {
+        rsh: repo.rsh(),
+        ..Default::default()
+    }
+}
+
 /// TODO: tie this into the repo which was mounted!
 pub(crate) async fn hack_unmount(mountpoint: PathBuf) -> BorgResult<()> {
     borg_async::umount(
@@ -113,7 +120,7 @@ impl BackupProvider for BorgProvider {
         let (create_progress_send, mut create_progress_recv) =
             mpsc::channel::<borg_async::CreateProgress>(100);
 
-        let common_options = repo.common_options();
+        let common_options = make_common_options(&repo);
 
         let repo_name_clone = repo.path();
         let progress_channel_task = progress_channel.clone();
@@ -173,7 +180,7 @@ impl BackupProvider for BorgProvider {
             repository: repo.path(),
             passphrase: repo.get_passphrase()?.map(|p| p.inner()),
         };
-        let res = borg_async::list(&list_options, &repo.common_options())
+        let res = borg_async::list(&list_options, &make_common_options(repo))
             .await
             .map_err(|e| anyhow!("Failed to list archives in repo {}: {:?}", repo.path(), e))?;
         Ok(res.into())
@@ -234,7 +241,7 @@ impl BackupProvider for BorgProvider {
         let mut mount_options =
             MountOptions::new(mount_source, mountpoint.to_string_lossy().to_string());
         mount_options.passphrase = repo.get_passphrase()?.map(|p| p.inner());
-        borg_async::mount(&mount_options, &repo.common_options())
+        borg_async::mount(&mount_options, &make_common_options(&repo))
             .await
             .map_err(|e| anyhow!("Failed to mount repo {}: {}", repo.path(), e));
         info!(
@@ -267,7 +274,7 @@ impl BackupProvider for BorgProvider {
         compact_options.keep_weekly = Some(prune_options.keep_weekly);
         compact_options.keep_monthly = Some(prune_options.keep_monthly);
         compact_options.keep_yearly = Some(prune_options.keep_yearly);
-        borg_async::prune(&compact_options, &repo.common_options())
+        borg_async::prune(&compact_options, &make_common_options(&repo))
             .await
             .map_err(|e| anyhow!("Failed to prune repo {}: {:?}", repo.path(), e))?;
         Ok(())
@@ -281,7 +288,7 @@ impl BackupProvider for BorgProvider {
             repository: repo.path(),
         };
         take_repo_lock!(progress_channel, repo);
-        borg_async::compact(&compact_options, &repo.common_options())
+        borg_async::compact(&compact_options, &make_common_options(&repo))
             .await
             .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.path(), e))?;
         Ok(())

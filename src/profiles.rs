@@ -18,7 +18,6 @@ use crate::{
 };
 use anyhow::anyhow;
 use anyhow::{bail, Context};
-use borgbackup::common::CommonOptions;
 use keyring::Entry;
 use std::fs;
 use tracing::info;
@@ -257,13 +256,6 @@ impl Repository {
 
     pub(crate) async fn check(&self) -> BorgResult<bool> {
         self.backup_provider().check(self).await
-    }
-
-    pub(crate) fn common_options(&self) -> CommonOptions {
-        CommonOptions {
-            rsh: self.rsh.clone(),
-            ..Default::default()
-        }
     }
 
     pub(crate) fn backup_provider(&self) -> Box<dyn BackupProvider> {
