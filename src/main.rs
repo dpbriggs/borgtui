@@ -17,7 +17,7 @@ use walkdir::WalkDir;
 
 use crate::borgtui::{BorgTui, Command, CommandResponse};
 use crate::cli::Action;
-use crate::profiles::{Encryption, Profile, Repository, RepositoryKind};
+use crate::profiles::{Encryption, Profile, Repository};
 use crate::types::{send_error, send_info, BorgResult, PrettyBytes};
 
 mod backends;
@@ -406,6 +406,7 @@ async fn handle_action(
         Action::Init {
             passphrase_loc,
             location,
+            kind,
             rsh,
         } => {
             let mut profile = Profile::open_or_create(&profile_name).await?;
@@ -413,7 +414,6 @@ async fn handle_action(
             //       when calling Encryption::from_passphrase_loc
             let encryption = Encryption::from_passphrase_loc(passphrase_loc.clone())?;
             let passphrase = passphrase_loc.get_passphrase()?;
-            let kind = RepositoryKind::Borg;
             let mut new_repo = Repository::new(location.clone(), encryption.clone(), kind, rsh);
             new_repo.set_passphrase(encryption, passphrase)?;
             new_repo.init().await?;
@@ -448,6 +448,7 @@ async fn handle_action(
         Action::AddRepo {
             repository,
             passphrase_loc,
+            kind,
             rsh,
         } => {
             // TODO: Check if repo is valid (maybe once "borg info" or something works)
@@ -459,7 +460,6 @@ async fn handle_action(
                     profile
                 );
             }
-            let kind = RepositoryKind::Borg;
             let repo = Repository::new(
                 repository.clone(),
                 Encryption::from_passphrase_loc(passphrase_loc)?,

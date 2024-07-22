@@ -309,3 +309,9 @@ pub(crate) struct RepositoryArchives {
     pub(crate) path: String,
     pub(crate) archives: Vec<Archive>,
 }
+
+impl RepositoryArchives {
+    pub(crate) fn new(path: String, archives: Vec<Archive>) -> Self {
+        Self { path, archives }
+    }
+}

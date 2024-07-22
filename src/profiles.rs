@@ -3,12 +3,16 @@ use std::{
     num::NonZeroU16,
     os::unix::prelude::PermissionsExt,
     path::{Path, PathBuf},
+    str::FromStr,
     sync::Arc,
     time::Instant,
 };
 
 use crate::{
-    backends::{backup_provider::BackupProvider, borg_provider::BorgProvider},
+    backends::{
+        backup_provider::BackupProvider, borg_provider::BorgProvider,
+        rustic_provider::RusticProvider,
+    },
     borgtui::CommandResponse,
     cli::PassphraseSource,
     types::{
@@ -102,6 +106,28 @@ impl Encryption {
 pub(crate) enum RepositoryKind {
     Borg,
     Rustic,
+}
+
+impl std::fmt::Display for RepositoryKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let sort = match self {
+            RepositoryKind::Borg => "borg".to_string(),
+            RepositoryKind::Rustic => "rustic".to_string(),
+        };
+        write!(f, "{sort}")
+    }
+}
+
+impl FromStr for RepositoryKind {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "borg" => Ok(RepositoryKind::Borg),
+            "rustic" => Ok(RepositoryKind::Rustic),
+            otherwise => Err(anyhow::anyhow!("Unknown repository kind: {otherwise}")),
+        }
+    }
 }
 
 const fn default_repository_kind() -> RepositoryKind {
@@ -261,7 +287,7 @@ impl Repository {
     pub(crate) fn backup_provider(&self) -> Box<dyn BackupProvider> {
         match self.kind {
             RepositoryKind::Borg => Box::new(BorgProvider {}),
-            RepositoryKind::Rustic => todo!(),
+            RepositoryKind::Rustic => Box::new(RusticProvider {}),
         }
     }
 }

@@ -5,7 +5,10 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, shells};
 use tokio::io::AsyncWriteExt;
 
-use crate::{profiles::Passphrase, types::BorgResult};
+use crate::{
+    profiles::{Passphrase, RepositoryKind},
+    types::BorgResult,
+};
 
 const ABOUT: &str = "A TUI and CLI to help automate borg backups :^)";
 
@@ -80,6 +83,9 @@ pub(crate) enum Action {
         /// - /hdd2/NewBackup
         location: String,
 
+        #[arg(short = 's', long, default_value = "borg")]
+        kind: RepositoryKind,
+
         #[command(flatten)]
         passphrase_loc: PassphraseSource,
     },
@@ -105,6 +111,10 @@ pub(crate) enum Action {
         /// SSH command to use when connecting to the repo
         #[arg(short, long)]
         rsh: Option<String>,
+
+        /// Whether this is a "borg" or "rustic" repo.
+        #[arg(short = 's', long, default_value = "borg")]
+        kind: RepositoryKind,
 
         #[command(flatten)]
         passphrase_loc: PassphraseSource,
