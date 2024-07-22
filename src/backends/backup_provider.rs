@@ -10,6 +10,7 @@ use tokio::sync::{mpsc, Semaphore};
 
 #[async_trait]
 pub(crate) trait BackupProvider: Send {
+    #[allow(clippy::too_many_arguments)]
     async fn create_backup(
         &self,
         archive_name: String,

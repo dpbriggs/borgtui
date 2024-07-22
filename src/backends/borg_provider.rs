@@ -240,7 +240,7 @@ impl BackupProvider for BorgProvider {
         let mut mount_options =
             MountOptions::new(mount_source, mountpoint.to_string_lossy().to_string());
         mount_options.passphrase = repo.get_passphrase()?.map(|p| p.inner());
-        borg_async::mount(&mount_options, &make_common_options(&repo))
+        borg_async::mount(&mount_options, &make_common_options(repo))
             .await
             .map_err(|e| anyhow!("Failed to mount repo {}: {}", repo.path(), e))?;
         info!(
@@ -274,7 +274,7 @@ impl BackupProvider for BorgProvider {
         compact_options.keep_weekly = Some(prune_options.keep_weekly);
         compact_options.keep_monthly = Some(prune_options.keep_monthly);
         compact_options.keep_yearly = Some(prune_options.keep_yearly);
-        borg_async::prune(&compact_options, &make_common_options(&repo))
+        borg_async::prune(&compact_options, &make_common_options(repo))
             .await
             .map_err(|e| anyhow!("Failed to prune repo {}: {:?}", repo.path(), e))?;
         Ok(())
@@ -288,7 +288,7 @@ impl BackupProvider for BorgProvider {
             repository: repo.path(),
         };
         take_repo_lock!(progress_channel, repo);
-        borg_async::compact(&compact_options, &make_common_options(&repo))
+        borg_async::compact(&compact_options, &make_common_options(repo))
             .await
             .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.path(), e))?;
         Ok(())
