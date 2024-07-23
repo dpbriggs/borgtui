@@ -59,6 +59,8 @@ impl From<borg_async::CreateProgress> for BackupCreationProgress {
     }
 }
 
+pub(crate) type CommandResponseSender = mpsc::Sender<CommandResponse>;
+
 fn make_common_options(repo: &Repository) -> CommonOptions {
     CommonOptions {
         rsh: repo.rsh(),

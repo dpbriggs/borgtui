@@ -1,4 +1,7 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{atomic::AtomicU64, Arc, RwLock},
+};
 
 use async_trait::async_trait;
 use tokio::sync::{mpsc, Semaphore};
@@ -6,10 +9,192 @@ use tokio::sync::{mpsc, Semaphore};
 use crate::{
     borgtui::CommandResponse,
     profiles::{Passphrase, PruneOptions, Repository},
-    types::{Archive, BorgResult, RepositoryArchives},
+    types::{
+        take_repo_lock, Archive, BackupCreateProgress, BackupCreationProgress, BorgResult,
+        PrettyBytes, RepositoryArchives,
+    },
 };
 
-use super::backup_provider::BackupProvider;
+use super::{backup_provider::BackupProvider, borg_provider::CommandResponseSender};
+
+const RESTIC_PASSPHRASE_REQUIRED: &str = "Restic Repositories require a password! Please check your configuration using `borgtui config-path`";
+
+fn passphrase_from_repo(repo: &Repository) -> BorgResult<Passphrase> {
+    repo.get_passphrase()?
+        .ok_or_else(|| anyhow::anyhow!(RESTIC_PASSPHRASE_REQUIRED))
+}
+
+#[derive(Clone, Debug)]
+struct ProgressEmitter {
+    sender: CommandResponseSender,
+    prefix: String,
+    repo_path: String,
+    title: Arc<RwLock<String>>,
+    length: Arc<AtomicU64>,
+    counter: Arc<AtomicU64>,
+    last_sent_counter: Arc<AtomicU64>,
+    last_time_sent: Arc<RwLock<std::time::Instant>>,
+    hidden: bool,
+    is_create_backup: bool,
+}
+
+impl ProgressEmitter {
+    fn create_backup(sender: CommandResponseSender, repo_path: String) -> Self {
+        // TODO: fix ugly time
+        let last_time_sent = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(1))
+            .unwrap();
+        Self {
+            sender,
+            prefix: String::new(),
+            repo_path,
+            title: Arc::new(RwLock::new(String::new())),
+            length: Arc::new(AtomicU64::new(0)),
+            counter: Arc::new(AtomicU64::new(0)),
+            last_sent_counter: Arc::new(AtomicU64::new(0)),
+            last_time_sent: Arc::new(RwLock::new(last_time_sent)),
+            hidden: false,
+            is_create_backup: true,
+        }
+    }
+
+    fn info(sender: CommandResponseSender, repo_path: String) -> Self {
+        let mut ss = Self::create_backup(sender, repo_path);
+        ss.is_create_backup = false;
+        ss
+    }
+
+    fn with_prefix(&self, prefix: String) -> Self {
+        let mut ss = self.clone();
+        ss.prefix = prefix;
+        ss
+    }
+
+    fn send_info_progress(&self) {
+        let counter = self.counter.load(std::sync::atomic::Ordering::SeqCst);
+        self.last_sent_counter
+            .store(counter, std::sync::atomic::Ordering::SeqCst);
+        let msg = format!(
+            "[{}] {} {} / {}",
+            &self.repo_path,
+            &self.prefix,
+            PrettyBytes(counter),
+            PrettyBytes(self.length.load(std::sync::atomic::Ordering::SeqCst))
+        );
+        let msg = CommandResponse::Info(msg);
+        if let Err(e) = self.sender.blocking_send(msg) {
+            tracing::error!("Failed to send inc message: {e}");
+        }
+    }
+
+    fn send_create_progress(&self) {
+        let byte_counter = self.counter.load(std::sync::atomic::Ordering::SeqCst);
+        self.last_sent_counter
+            .store(byte_counter, std::sync::atomic::Ordering::SeqCst);
+        let total_size = self.length.load(std::sync::atomic::Ordering::SeqCst);
+        let msg = format!(
+            "{}: {} - {} / {}",
+            &self.prefix,
+            &*self.title.read().unwrap(),
+            PrettyBytes(byte_counter),
+            PrettyBytes(total_size)
+        );
+        let progress = BackupCreationProgress::InProgress {
+            original_size: total_size,
+            compressed_size: byte_counter,
+            deduplicated_size: byte_counter,
+            num_files: 0,
+            current_path: msg,
+        };
+        let create_progress = BackupCreateProgress::new(self.repo_path.clone(), progress);
+        let msg = CommandResponse::CreateProgress(create_progress);
+        if let Err(e) = self.sender.blocking_send(msg) {
+            tracing::error!("Failed to send inc message: {e}");
+        }
+    }
+    fn send_message(&self) {
+        let mut last_time_guard = self.last_time_sent.write().unwrap();
+        *last_time_guard = std::time::Instant::now();
+        if self.is_create_backup {
+            self.send_create_progress();
+        } else {
+            self.send_info_progress();
+        }
+    }
+}
+
+const SUBSTANTIAL_CHANGE_THRESHOLD: f64 = 0.10;
+const SUBSTANTIAL_CHANGE_THRESHOLD_TIME: std::time::Duration =
+    std::time::Duration::from_millis(300);
+
+impl rustic_core::Progress for ProgressEmitter {
+    fn is_hidden(&self) -> bool {
+        self.hidden
+    }
+
+    fn set_length(&self, len: u64) {
+        self.length.store(len, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn set_title(&self, title: &'static str) {
+        let mut guard = self.title.write().unwrap();
+        *guard = title.to_string();
+    }
+
+    fn inc(&self, inc: u64) {
+        let old = self
+            .counter
+            .fetch_add(inc, std::sync::atomic::Ordering::SeqCst);
+        let new_value = old + inc;
+        let last_sent_size = self
+            .last_sent_counter
+            .load(std::sync::atomic::Ordering::SeqCst);
+        let is_substantial_change =
+            (1.0 - last_sent_size as f64 / (new_value as f64)) >= SUBSTANTIAL_CHANGE_THRESHOLD;
+        let is_substantial_time_diff = (std::time::Instant::now()
+            - *self.last_time_sent.read().unwrap())
+            >= SUBSTANTIAL_CHANGE_THRESHOLD_TIME;
+        if is_substantial_change || is_substantial_time_diff {
+            self.send_message();
+        }
+    }
+
+    fn finish(&self) {
+        if self.hidden {
+            return;
+        }
+        // Ensure the last entry is always sent
+        self.send_message();
+        // Actually finish
+        if self.is_create_backup {
+            let finished = BackupCreateProgress::finished(self.repo_path.clone());
+            let msg = CommandResponse::CreateProgress(finished);
+            if let Err(e) = self.sender.blocking_send(msg) {
+                tracing::error!("Failed to send finish message: {e}");
+            }
+        }
+    }
+}
+
+impl rustic_core::ProgressBars for ProgressEmitter {
+    type P = ProgressEmitter;
+
+    fn progress_hidden(&self) -> Self::P {
+        self.clone()
+    }
+
+    fn progress_spinner(&self, prefix: impl Into<std::borrow::Cow<'static, str>>) -> Self::P {
+        self.with_prefix(prefix.into().to_string())
+    }
+
+    fn progress_counter(&self, prefix: impl Into<std::borrow::Cow<'static, str>>) -> Self::P {
+        self.with_prefix(prefix.into().to_string())
+    }
+
+    fn progress_bytes(&self, prefix: impl Into<std::borrow::Cow<'static, str>>) -> Self::P {
+        self.with_prefix(prefix.into().to_string())
+    }
+}
 
 pub(crate) struct RusticProvider;
 
@@ -23,20 +208,9 @@ impl BackupProvider for RusticProvider {
         exclude_caches: bool,
         repo: Repository,
         // TODO: use progress channel
-        _progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: mpsc::Sender<CommandResponse>,
         completion_semaphore: Arc<Semaphore>,
     ) -> BorgResult<()> {
-        let repo_loc = repo.path();
-        let passphrase = repo.get_passphrase()?;
-        let backends = rustic_backend::BackendOptions::default()
-            .repository(&repo_loc)
-            .to_backends()?;
-
-        let mut repo_opts = rustic_core::RepositoryOptions::default();
-        if let Some(passphrase) = passphrase {
-            repo_opts = repo_opts.password(passphrase.inner())
-        }
-
         let backup_paths: Vec<_> = backup_paths
             .iter()
             .map(|bp| bp.to_string_lossy().to_string())
@@ -58,10 +232,24 @@ impl BackupProvider for RusticProvider {
             repo.path(),
             &archive_name
         );
+        let pb = ProgressEmitter::create_backup(progress_channel, repo.path());
         let res = tokio::task::spawn_blocking(move || -> BorgResult<()> {
-            let rustic_repo = rustic_core::Repository::new(&repo_opts, backends)?
+            // Backend
+            let repo_loc = repo.path();
+            let backends = rustic_backend::BackendOptions::default()
+                .repository(repo_loc)
+                .to_backends()?;
+
+            // Passphrase
+            let passphrase = passphrase_from_repo(&repo)?;
+            // Actually open the connection
+            let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
+            let rustic_repo = rustic_core::Repository::new_with_progress(&repo_opts, backends, pb)?
                 .open()?
                 .to_indexed_ids()?;
+            // let rustic_repo = rustic_core::Repository::new(&repo_opts, backends)?
+            //     .open()?
+            //     .to_indexed_ids()?;
             let backup_opts = rustic_core::BackupOptions::default().ignore_filter_opts(filter_opts);
             let sources = rustic_core::PathList::from_strings(backup_paths);
             let mut snap = rustic_core::SnapshotOptions::default()
@@ -69,7 +257,7 @@ impl BackupProvider for RusticProvider {
                 .to_snapshot()?;
             snap.label = archive_name;
             let snap = rustic_repo.backup(&backup_opts, &sources, snap)?;
-            tracing::info!("Completed rustic backup: {:#?}", snap);
+            tracing::info!("Completed rustic backup {}", snap.label);
             Ok(())
         })
         .await?;
@@ -111,6 +299,7 @@ impl BackupProvider for RusticProvider {
         .await??;
         Ok(res)
     }
+
     async fn init_repo(
         &self,
         repo_loc: String,
@@ -135,6 +324,7 @@ impl BackupProvider for RusticProvider {
         rustic_core::Repository::new(&repo_opts, backends)?.init(&key_opts, &config_opts)?;
         Ok(())
     }
+
     async fn mount(
         &self,
         repo: &Repository,
@@ -172,25 +362,75 @@ impl BackupProvider for RusticProvider {
         tracing::info!("Restic exited with code {exit:?}");
         Ok(())
     }
+
     // TODO: Figure out unmounting
     #[allow(unused)]
     async fn unmount(&self, mountpoint: PathBuf) -> BorgResult<()> {
         todo!()
     }
+
     async fn prune(
         &self,
-        _repo: &Repository,
-        _prune_options: PruneOptions,
-        _progress_channel: mpsc::Sender<CommandResponse>,
+        repo: &Repository,
+        prune_options: PruneOptions,
+        progress_channel: mpsc::Sender<CommandResponse>,
     ) -> BorgResult<()> {
-        todo!()
+        take_repo_lock!(progress_channel, repo);
+
+        let repo_loc = repo.path();
+
+        let backends = rustic_backend::BackendOptions::default()
+            .repository(&repo_loc)
+            .to_backends()?;
+        let passphrase = passphrase_from_repo(repo)?;
+
+        tokio::task::spawn_blocking(move || {
+            // Actually open the connection
+            let pb = ProgressEmitter::info(progress_channel, repo_loc.clone());
+            let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
+            let rustic_repo =
+                rustic_core::Repository::new_with_progress(&repo_opts, backends, pb)?.open()?;
+            let keep_options = rustic_core::KeepOptions::default()
+                .keep_daily(prune_options.keep_daily.get())
+                .keep_weekly(prune_options.keep_weekly.get())
+                .keep_monthly(prune_options.keep_monthly.get())
+                .keep_yearly(prune_options.keep_yearly.get());
+            let forget_ids = rustic_repo
+                .get_forget_snapshots(
+                    &keep_options,
+                    rustic_core::SnapshotGroupCriterion::default()
+                        .hostname(false)
+                        .label(false)
+                        .paths(false)
+                        .tags(false),
+                    |_| true,
+                )?
+                .into_forget_ids();
+            tracing::info!(
+                "Removing {} rustic snapshots in {}.",
+                forget_ids.len(),
+                repo_loc,
+            );
+            rustic_repo.delete_snapshots(&forget_ids)?;
+            let prune_opts = rustic_core::PruneOptions::default().ignore_snaps(forget_ids);
+            let prune_plan = rustic_repo.prune_plan(&prune_opts)?;
+            tracing::info!("Pruning {}...", repo_loc);
+            prune_plan.do_prune(&rustic_repo, &prune_opts)?;
+            tracing::info!("Pruning complete for {}...", repo_loc);
+            Ok::<(), anyhow::Error>(())
+        })
+        .await??;
+        Ok(())
     }
     async fn compact(
         &self,
         _repo: &Repository,
         _progress_channel: mpsc::Sender<CommandResponse>,
     ) -> BorgResult<()> {
-        todo!()
+        tracing::warn!(
+            "BorgTUI's implemenetation of Rustic repositories automatically compact when pruning!"
+        );
+        Ok(())
     }
     async fn check(&self, _repo: &Repository) -> BorgResult<bool> {
         todo!()

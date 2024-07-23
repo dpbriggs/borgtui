@@ -68,7 +68,7 @@ pub(crate) use log_on_error;
 macro_rules! take_repo_lock {
     ($channel:expr, $repo:expr) => {
         if $repo.lock.try_lock().is_err() {
-            send_info!(
+            crate::types::send_info!(
                 $channel,
                 format!("Repo lock {} is already held, waiting...", $repo)
             );
@@ -296,6 +296,22 @@ pub(crate) enum BackupCreationProgress {
 pub(crate) struct BackupCreateProgress {
     pub(crate) repository: String,
     pub(crate) create_progress: BackupCreationProgress,
+}
+
+impl BackupCreateProgress {
+    pub(crate) fn new(repository: String, create_progress: BackupCreationProgress) -> Self {
+        Self {
+            repository,
+            create_progress,
+        }
+    }
+
+    pub(crate) fn finished(repository: String) -> Self {
+        Self {
+            repository,
+            create_progress: BackupCreationProgress::Finished,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

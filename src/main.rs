@@ -351,7 +351,7 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
                     info!("Finished backup for {}", msg.repository)
                 }
             },
-            CommandResponse::Info(info_log) => info!(info_log),
+            CommandResponse::Info(info_log) => info!("{}", info_log),
             CommandResponse::ListArchiveResult(list_archive_result) => {
                 // TODO: Print this out in a more informative way
                 info!("{:?}", list_archive_result)
