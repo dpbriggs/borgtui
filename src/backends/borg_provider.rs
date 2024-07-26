@@ -16,9 +16,8 @@ use crate::{
     borgtui::CommandResponse,
     profiles::{Passphrase, Repository},
     types::{
-        send_error, send_info, show_notification, take_repo_lock, Archive, BackupCreateProgress,
+        send_check_progress, send_error, send_info, take_repo_lock, Archive, BackupCreateProgress,
         BackupCreationProgress, BorgResult, CommandResponseSender, RepositoryArchives,
-        EXTENDED_NOTIFICATION_DURATION,
     },
 };
 
@@ -325,7 +324,6 @@ impl BackupProvider for BorgProvider {
         if let Some(reader) = process.stderr.take() {
             let progress_channel_clone = progress_channel.clone();
             let repo_loc = repo.path();
-            tracing::info!("in reader");
             tokio::spawn(async move {
                 use tokio::io::AsyncBufReadExt;
                 let bb = tokio::io::BufReader::new(reader);
@@ -336,8 +334,8 @@ impl BackupProvider for BorgProvider {
                         .ok()
                         .and_then(|jj| jj.get("message").cloned());
                     if let Some(msg) = msg {
-                        let info_msg = format!("[{}] {}", repo_loc, msg);
-                        send_info!(progress_channel_clone, info_msg.clone());
+                        let msg = format!("{}", msg);
+                        send_check_progress!(progress_channel_clone, repo_loc.clone(), msg);
                     }
                 }
             });
@@ -345,13 +343,6 @@ impl BackupProvider for BorgProvider {
 
         let exit = process.wait().await?;
         if !exit.success() {
-            tracing::error!("Verification failed for repository: {}", repo);
-            show_notification(
-                &format!("Verification Failed for {}!", repo),
-                "Please check BorgTUI's logs for more information.",
-                EXTENDED_NOTIFICATION_DURATION,
-            )
-            .await?;
         } else {
             info!("Verification succeeded for repository: {}", repo);
         }

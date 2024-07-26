@@ -351,6 +351,9 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
                     info!("Finished backup for {}", msg.repository)
                 }
             },
+            CommandResponse::CheckProgress(check_progress) => {
+                info!("[{}] {}", check_progress.repo_loc, check_progress.message);
+            }
             CommandResponse::Info(info_log) => info!("{}", info_log),
             CommandResponse::ListArchiveResult(list_archive_result) => {
                 // TODO: Print this out in a more informative way
@@ -577,6 +580,19 @@ async fn handle_action(
                             false
                         }
                     };
+                    if !res {
+                        tracing::error!("Verification failed for repository: {}", repo_clone);
+                        log_on_error!(
+                            show_notification(
+                                &format!("Verification Failed for {}!", repo_clone),
+                                "Please check BorgTUI's logs for more information.",
+                                EXTENDED_NOTIFICATION_DURATION,
+                            )
+                            .await,
+                            "Failed to show notification popup: {}"
+                        );
+                    }
+
                     successful_clone.fetch_and(res, Ordering::SeqCst);
                     check_semaphore_clone.add_permits(1);
                 });

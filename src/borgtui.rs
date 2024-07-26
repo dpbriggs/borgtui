@@ -1,8 +1,8 @@
 use crate::profiles::Profile;
 use crate::profiles::{ProfileOperation, Repository};
 use crate::types::{
-    BackupCreateProgress, BackupCreationProgress, BorgResult, PrettyBytes, RepositoryArchives,
-    RingBuffer,
+    BackupCreateProgress, BackupCreationProgress, BorgResult, CheckProgress, PrettyBytes,
+    RepositoryArchives, RingBuffer,
 };
 use crossterm::event::{KeyEvent, KeyModifiers};
 use crossterm::{
@@ -39,6 +39,8 @@ const BACKUP_STATS_RETENTION_AMOUNT: usize = 100;
 const TICK_RATE_MILLIS: u64 = 16;
 // How many files to remember when backing up
 const NUM_RECENTLY_BACKED_UP_FILES: usize = 5;
+// How lines of check stats to remember
+const CHECK_STATS_RETENTION_AMOUNT: usize = 7;
 
 #[derive(Debug)]
 pub(crate) enum Command {
@@ -58,6 +60,7 @@ pub(crate) enum Command {
 #[derive(Debug)]
 pub(crate) enum CommandResponse {
     CreateProgress(BackupCreateProgress),
+    CheckProgress(CheckProgress),
     ListArchiveResult(RepositoryArchives),
     ProfileUpdated(Profile),
     Info(String),
@@ -89,6 +92,11 @@ impl BackupStat {
             deduplicated_size,
         }
     }
+}
+
+#[derive(Default)]
+struct CheckProgressState {
+    check_stats: HashMap<String, RingBuffer<String, CHECK_STATS_RETENTION_AMOUNT>>,
 }
 
 #[derive(Default)]
@@ -778,6 +786,7 @@ pub(crate) struct BorgTui {
     popup_stack: Vec<Box<dyn Popup>>,
     currently_mounted_items: Option<Vec<(String, String)>>,
     user_intent: Vec<UserIntent>,
+    check_progress_state: CheckProgressState,
     // This is not an enum field to make it easier to tab while a backup is in progress.
     backup_state: BackupState,
     list_archives_state: HashMap<String, RepositoryArchives>,
@@ -807,6 +816,7 @@ impl BorgTui {
             popup_stack: Vec::new(),
             currently_mounted_items: None,
             user_intent: Vec::new(),
+            check_progress_state: CheckProgressState::default(),
             backup_state: BackupState::default(),
             list_archives_state: HashMap::new(),
             directory_suggestions: Vec::new(),
@@ -1172,6 +1182,13 @@ impl BorgTui {
                         tracing::info!("Finished backing up {}", repo);
                     }
                 }
+            }
+            CommandResponse::CheckProgress(check_progress) => {
+                self.check_progress_state
+                    .check_stats
+                    .entry(check_progress.repo_loc)
+                    .or_default()
+                    .push_back(check_progress.message);
             }
             CommandResponse::Info(info_string) => {
                 info!(info_string);

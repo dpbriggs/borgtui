@@ -11,7 +11,8 @@ use crate::{
     profiles::{Passphrase, PruneOptions, Repository},
     types::{
         send_error, send_info, take_repo_lock, Archive, BackupCreateProgress,
-        BackupCreationProgress, BorgResult, CommandResponseSender, PrettyBytes, RepositoryArchives,
+        BackupCreationProgress, BorgResult, CheckProgress, CommandResponseSender, PrettyBytes,
+        RepositoryArchives,
     },
 };
 
@@ -22,6 +23,13 @@ const RESTIC_PASSPHRASE_REQUIRED: &str = "Restic Repositories require a password
 fn passphrase_from_repo(repo: &Repository) -> BorgResult<Passphrase> {
     repo.get_passphrase()?
         .ok_or_else(|| anyhow::anyhow!(RESTIC_PASSPHRASE_REQUIRED))
+}
+
+#[derive(Debug, Clone)]
+enum ProgressEmitterKind {
+    Backup,
+    Info,
+    Check,
 }
 
 #[derive(Clone, Debug)]
@@ -35,7 +43,7 @@ struct ProgressEmitter {
     last_sent_counter: Arc<AtomicU64>,
     last_time_sent: Arc<RwLock<std::time::Instant>>,
     hidden: bool,
-    is_create_backup: bool,
+    kind: ProgressEmitterKind,
 }
 
 impl ProgressEmitter {
@@ -54,13 +62,19 @@ impl ProgressEmitter {
             last_sent_counter: Arc::new(AtomicU64::new(0)),
             last_time_sent: Arc::new(RwLock::new(last_time_sent)),
             hidden: false,
-            is_create_backup: true,
+            kind: ProgressEmitterKind::Backup,
         }
     }
 
     fn info(sender: CommandResponseSender, repo_path: String) -> Self {
         let mut ss = Self::create_backup(sender, repo_path);
-        ss.is_create_backup = false;
+        ss.kind = ProgressEmitterKind::Info;
+        ss
+    }
+
+    fn check(sender: CommandResponseSender, repo_path: String) -> Self {
+        let mut ss = Self::create_backup(sender, repo_path);
+        ss.kind = ProgressEmitterKind::Check;
         ss
     }
 
@@ -68,6 +82,22 @@ impl ProgressEmitter {
         let mut ss = self.clone();
         ss.prefix = prefix;
         ss
+    }
+
+    fn send_check_progress(&self) {
+        let counter = self.counter.load(std::sync::atomic::Ordering::SeqCst);
+        self.last_sent_counter
+            .store(counter, std::sync::atomic::Ordering::SeqCst);
+        let msg = format!(
+            "{} {} / {}",
+            &self.prefix,
+            PrettyBytes(counter),
+            PrettyBytes(self.length.load(std::sync::atomic::Ordering::SeqCst))
+        );
+        let msg = CommandResponse::CheckProgress(CheckProgress::new(self.repo_path.clone(), msg));
+        if let Err(e) = self.sender.blocking_send(msg) {
+            tracing::error!("Failed to send inc message: {e}");
+        }
     }
 
     fn send_info_progress(&self) {
@@ -115,7 +145,7 @@ impl ProgressEmitter {
 
     fn maybe_send_backup_create_finished(&self) {
         // Actually finish
-        if self.is_create_backup {
+        if matches!(self.kind, ProgressEmitterKind::Backup) {
             let finished = BackupCreateProgress::finished(self.repo_path.clone());
             let msg = CommandResponse::CreateProgress(finished);
             if let Err(e) = self.sender.blocking_send(msg) {
@@ -127,10 +157,10 @@ impl ProgressEmitter {
     fn send_message(&self) {
         let mut last_time_guard = self.last_time_sent.write().unwrap();
         *last_time_guard = std::time::Instant::now();
-        if self.is_create_backup {
-            self.send_create_progress();
-        } else {
-            self.send_info_progress();
+        match self.kind {
+            ProgressEmitterKind::Backup => self.send_create_progress(),
+            ProgressEmitterKind::Info => self.send_info_progress(),
+            ProgressEmitterKind::Check => self.send_check_progress(),
         }
     }
 }
@@ -481,7 +511,7 @@ impl BackupProvider for RusticProvider {
 
         let progress_channel_clone = progress_channel.clone();
         let res = tokio::task::spawn_blocking(move || {
-            let pb = ProgressEmitter::info(progress_channel_clone, repo_loc.clone());
+            let pb = ProgressEmitter::check(progress_channel_clone, repo_loc.clone());
             let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
             let rustic_repo =
                 rustic_core::Repository::new_with_progress(&repo_opts, backends, pb)?.open()?;

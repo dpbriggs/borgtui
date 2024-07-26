@@ -12,6 +12,21 @@ pub(crate) const SHORT_NOTIFICATION_DURATION: std::time::Duration =
     std::time::Duration::from_secs(15);
 
 /// Send a CommandResponse::Info in a channel.
+macro_rules! send_check_progress {
+    ($channel:expr, $repo_loc:expr, $message:expr) => {
+        if let Err(e) = $channel
+            .send(crate::borgtui::CommandResponse::CheckProgress(
+                crate::types::CheckProgress::new($repo_loc, $message),
+            ))
+            .await
+        {
+            tracing::error!("Error occurred while sending check progress message: {}", e);
+        }
+    };
+}
+pub(crate) use send_check_progress;
+
+/// Send a CommandResponse::Info in a channel.
 macro_rules! send_info {
     ($channel:expr, $info_message:expr) => {
         if let Err(e) = $channel.send(CommandResponse::Info($info_message)).await {
@@ -283,6 +298,18 @@ pub(crate) async fn show_notification<I: Into<Timeout>>(
         .show_async()
         .await?;
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CheckProgress {
+    pub(crate) repo_loc: String,
+    pub(crate) message: String,
+}
+
+impl CheckProgress {
+    pub(crate) fn new(repo_loc: String, message: String) -> Self {
+        Self { repo_loc, message }
+    }
 }
 
 #[derive(Debug, Clone)]
