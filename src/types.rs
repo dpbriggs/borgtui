@@ -28,6 +28,9 @@ macro_rules! send_info {
         }
     };
 }
+
+pub(crate) type CommandResponseSender = tokio::sync::mpsc::Sender<CommandResponse>;
+
 use glob::Pattern;
 use notify_rust::{Notification, Timeout};
 pub(crate) use send_info;
@@ -83,6 +86,8 @@ macro_rules! take_repo_lock {
     };
 }
 pub(crate) use take_repo_lock;
+
+use crate::borgtui::CommandResponse;
 
 #[derive(Debug, Default)]
 pub(crate) struct RingBuffer<T, const N: usize> {

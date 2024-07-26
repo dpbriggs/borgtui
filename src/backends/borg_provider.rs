@@ -10,7 +10,6 @@ use borgbackup::{
     },
     output::list::ListRepository as BorgLibListRepository,
 };
-use tokio::sync::mpsc;
 use tracing::info;
 
 use crate::{
@@ -18,7 +17,8 @@ use crate::{
     profiles::{Passphrase, Repository},
     types::{
         send_error, send_info, show_notification, take_repo_lock, Archive, BackupCreateProgress,
-        BackupCreationProgress, BorgResult, RepositoryArchives, EXTENDED_NOTIFICATION_DURATION,
+        BackupCreationProgress, BorgResult, CommandResponseSender, RepositoryArchives,
+        EXTENDED_NOTIFICATION_DURATION,
     },
 };
 
@@ -59,8 +59,6 @@ impl From<borg_async::CreateProgress> for BackupCreationProgress {
     }
 }
 
-pub(crate) type CommandResponseSender = mpsc::Sender<CommandResponse>;
-
 fn make_common_options(repo: &Repository) -> CommonOptions {
     CommonOptions {
         rsh: repo.rsh(),
@@ -93,7 +91,7 @@ impl BackupProvider for BorgProvider {
         exclude_patterns: &[String],
         exclude_caches: bool,
         repo: Repository,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
         completion_semaphore: std::sync::Arc<tokio::sync::Semaphore>,
     ) -> BorgResult<()> {
         // CreateOptions
@@ -119,7 +117,7 @@ impl BackupProvider for BorgProvider {
         // Convert borgs create progress into ours
 
         let (create_progress_send, mut create_progress_recv) =
-            mpsc::channel::<borg_async::CreateProgress>(100);
+            tokio::sync::mpsc::channel::<borg_async::CreateProgress>(200);
 
         let common_options = make_common_options(&repo);
 
@@ -267,7 +265,7 @@ impl BackupProvider for BorgProvider {
         &self,
         repo: &Repository,
         prune_options: crate::profiles::PruneOptions,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
     ) -> BorgResult<()> {
         take_repo_lock!(progress_channel, repo);
         let mut compact_options = BorgLibPruneOptions::new(repo.path());
@@ -284,7 +282,7 @@ impl BackupProvider for BorgProvider {
     async fn compact(
         &self,
         repo: &Repository,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
     ) -> BorgResult<()> {
         let compact_options = borgbackup::common::CompactOptions {
             repository: repo.path(),

@@ -10,14 +10,12 @@ use std::{
 
 use crate::{
     backends::{
-        backup_provider::BackupProvider,
-        borg_provider::{BorgProvider, CommandResponseSender},
+        backup_provider::BackupProvider, borg_provider::BorgProvider,
         rustic_provider::RusticProvider,
     },
-    borgtui::CommandResponse,
     cli::PassphraseSource,
     types::{
-        log_on_error, show_notification, BorgResult, RepositoryArchives,
+        log_on_error, show_notification, BorgResult, CommandResponseSender, RepositoryArchives,
         SHORT_NOTIFICATION_DURATION,
     },
 };
@@ -28,7 +26,7 @@ use std::fs;
 use tracing::info;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct Passphrase(String);
@@ -266,7 +264,7 @@ impl Repository {
     pub(crate) async fn prune(
         &self,
         prune_options: PruneOptions,
-        progress_channel: tokio::sync::mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
     ) -> BorgResult<()> {
         info!("Starting to prune {}", self);
         self.backup_provider()
@@ -274,10 +272,7 @@ impl Repository {
             .await
     }
 
-    pub(crate) async fn compact(
-        &self,
-        progress_channel: tokio::sync::mpsc::Sender<CommandResponse>,
-    ) -> BorgResult<()> {
+    pub(crate) async fn compact(&self, progress_channel: CommandResponseSender) -> BorgResult<()> {
         self.backup_provider().compact(self, progress_channel).await
     }
 
@@ -438,7 +433,7 @@ impl Profile {
 
     pub(crate) async fn create_backup_with_notification(
         &self,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
     ) -> BorgResult<tokio::task::JoinHandle<()>> {
         let completion_semaphore = Arc::new(Semaphore::new(0));
         let num_active_repos = self.num_active_repos();
@@ -478,7 +473,7 @@ impl Profile {
 
     pub(crate) async fn create_backup(
         &self,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
     ) -> BorgResult<()> {
         self.create_backup_internal(progress_channel, Arc::new(Semaphore::new(0)))
             .await
@@ -486,7 +481,7 @@ impl Profile {
 
     async fn create_backup_internal(
         &self,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
         completion_semaphore: Arc<Semaphore>,
     ) -> BorgResult<()> {
         let archive_name = format!(

@@ -11,8 +11,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info};
 use tracing_subscriber::FmtSubscriber;
-use types::BackupCreationProgress;
 use types::{log_on_error, show_notification, DirectoryFinder, EXTENDED_NOTIFICATION_DURATION};
+use types::{BackupCreationProgress, CommandResponseSender};
 use walkdir::WalkDir;
 
 use crate::borgtui::{BorgTui, Command, CommandResponse};
@@ -80,7 +80,7 @@ fn determine_directory_size(
 /// Returns Ok(true) to exit the program.
 async fn handle_tui_command(
     command: Command,
-    command_response_send: mpsc::Sender<CommandResponse>,
+    command_response_send: CommandResponseSender,
     directory_finder: Arc<Mutex<DirectoryFinder>>,
 ) -> BorgResult<bool> {
     match command {
@@ -255,7 +255,7 @@ async fn handle_tui_command(
 
 fn watch_profile_for_changes(
     profile_path: PathBuf,
-    response_send: mpsc::Sender<CommandResponse>,
+    response_send: CommandResponseSender,
 ) -> BorgResult<()> {
     let profile_path_clone = profile_path.clone();
     let mut watcher =
@@ -400,7 +400,7 @@ WantedBy=default.target
 async fn handle_action(
     action: Action,
     profile_name: Option<String>,
-    command_response_send: mpsc::Sender<CommandResponse>,
+    command_response_send: CommandResponseSender,
 ) -> BorgResult<()> {
     match action {
         Action::Init {

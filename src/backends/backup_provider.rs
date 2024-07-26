@@ -1,13 +1,11 @@
-use crate::types::RepositoryArchives;
-use crate::{
-    profiles::{Passphrase, PruneOptions, Repository},
-    BorgResult,
-};
-use async_trait::async_trait;
+/// Backup providers for BorgTUI
 use std::{path::PathBuf, sync::Arc};
+
+use async_trait::async_trait;
 use tokio::sync::Semaphore;
 
-use super::borg_provider::CommandResponseSender;
+use crate::profiles::{Passphrase, PruneOptions, Repository};
+use crate::types::{BorgResult, CommandResponseSender, RepositoryArchives};
 
 #[async_trait]
 pub(crate) trait BackupProvider: Send {

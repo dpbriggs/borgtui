@@ -4,18 +4,18 @@ use std::{
 };
 
 use async_trait::async_trait;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::Semaphore;
 
 use crate::{
     borgtui::CommandResponse,
     profiles::{Passphrase, PruneOptions, Repository},
     types::{
         send_error, send_info, take_repo_lock, Archive, BackupCreateProgress,
-        BackupCreationProgress, BorgResult, PrettyBytes, RepositoryArchives,
+        BackupCreationProgress, BorgResult, CommandResponseSender, PrettyBytes, RepositoryArchives,
     },
 };
 
-use super::{backup_provider::BackupProvider, borg_provider::CommandResponseSender};
+use super::backup_provider::BackupProvider;
 
 const RESTIC_PASSPHRASE_REQUIRED: &str = "Restic Repositories require a password! Please check your configuration using `borgtui config-path`";
 
@@ -219,7 +219,7 @@ impl BackupProvider for RusticProvider {
         exclude_patterns: &[String],
         exclude_caches: bool,
         repo: Repository,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
         completion_semaphore: Arc<Semaphore>,
     ) -> BorgResult<()> {
         let backup_paths: Vec<_> = backup_paths
@@ -400,7 +400,7 @@ impl BackupProvider for RusticProvider {
         &self,
         repo: &Repository,
         prune_options: PruneOptions,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
     ) -> BorgResult<()> {
         take_repo_lock!(progress_channel, repo);
 
@@ -458,7 +458,7 @@ impl BackupProvider for RusticProvider {
     async fn compact(
         &self,
         _repo: &Repository,
-        _progress_channel: mpsc::Sender<CommandResponse>,
+        _progress_channel: CommandResponseSender,
     ) -> BorgResult<()> {
         tracing::warn!(
             "BorgTUI's implementation of Rustic repositories automatically compact when pruning!"
