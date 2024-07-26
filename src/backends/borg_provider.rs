@@ -344,7 +344,10 @@ impl BackupProvider for BorgProvider {
         let exit = process.wait().await?;
         if !exit.success() {
         } else {
-            info!("Verification succeeded for repository: {}", repo);
+            send_info!(
+                progress_channel,
+                format!("Verification succeeded for repository: {}", repo)
+            );
         }
         Ok(exit.success())
     }

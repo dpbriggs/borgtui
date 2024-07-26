@@ -1,6 +1,9 @@
 use std::{
     path::PathBuf,
-    sync::{atomic::AtomicU64, Arc, RwLock},
+    sync::{
+        atomic::{AtomicBool, AtomicU64},
+        Arc, RwLock,
+    },
 };
 
 use async_trait::async_trait;
@@ -42,6 +45,7 @@ struct ProgressEmitter {
     counter: Arc<AtomicU64>,
     last_sent_counter: Arc<AtomicU64>,
     last_time_sent: Arc<RwLock<std::time::Instant>>,
+    force_emit_now: Arc<AtomicBool>,
     hidden: bool,
     kind: ProgressEmitterKind,
 }
@@ -61,6 +65,7 @@ impl ProgressEmitter {
             counter: Arc::new(AtomicU64::new(0)),
             last_sent_counter: Arc::new(AtomicU64::new(0)),
             last_time_sent: Arc::new(RwLock::new(last_time_sent)),
+            force_emit_now: Arc::new(AtomicBool::new(false)),
             hidden: false,
             kind: ProgressEmitterKind::Backup,
         }
@@ -181,6 +186,8 @@ impl rustic_core::Progress for ProgressEmitter {
     fn set_title(&self, title: &'static str) {
         let mut guard = self.title.write().unwrap();
         *guard = title.to_string();
+        self.force_emit_now
+            .store(true, std::sync::atomic::Ordering::SeqCst)
     }
 
     fn inc(&self, inc: u64) {
@@ -196,7 +203,10 @@ impl rustic_core::Progress for ProgressEmitter {
         let is_substantial_time_diff = (std::time::Instant::now()
             - *self.last_time_sent.read().unwrap())
             >= SUBSTANTIAL_CHANGE_THRESHOLD_TIME;
-        if is_substantial_change || is_substantial_time_diff {
+        let force_emit_now = self
+            .force_emit_now
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if is_substantial_change || is_substantial_time_diff || force_emit_now {
             self.send_message();
         }
     }
@@ -269,7 +279,10 @@ impl BackupProvider for RusticProvider {
         );
 
         let fully_qualified_name = format!("{}::{}", repo.path(), &archive_name);
-        tracing::info!("Starting rustic backup of {fully_qualified_name}");
+        send_info!(
+            progress_channel,
+            format!("Starting rustic backup of {fully_qualified_name}")
+        );
         let pb = ProgressEmitter::create_backup(progress_channel.clone(), repo.path());
         let handle = tokio::task::spawn_blocking(move || -> BorgResult<()> {
             // Backend
@@ -284,7 +297,6 @@ impl BackupProvider for RusticProvider {
             let mut repo_opts =
                 rustic_core::RepositoryOptions::default().password(passphrase.inner());
             if let Some(cache_dir) = rustic_cache_dir() {
-                tracing::info!("cache_dir={:?}", &cache_dir);
                 repo_opts = repo_opts.cache_dir(cache_dir);
                 repo_opts.no_cache = false;
             }
@@ -441,9 +453,9 @@ impl BackupProvider for RusticProvider {
             .to_backends()?;
         let passphrase = passphrase_from_repo(repo)?;
 
+        let pb = ProgressEmitter::info(progress_channel.clone(), repo_loc.clone());
         let handle = tokio::task::spawn_blocking(move || {
             // Actually open the connection
-            let pb = ProgressEmitter::info(progress_channel, repo_loc.clone());
             let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
             let rustic_repo =
                 rustic_core::Repository::new_with_progress(&repo_opts, backends, pb)?.open()?;
@@ -463,6 +475,7 @@ impl BackupProvider for RusticProvider {
                     |_| true,
                 )?
                 .into_forget_ids();
+            // TODO: use send_info_blocking (and write that macro)
             tracing::info!(
                 "Removing {} rustic snapshots in {}.",
                 forget_ids.len(),
@@ -471,16 +484,20 @@ impl BackupProvider for RusticProvider {
             rustic_repo.delete_snapshots(&forget_ids)?;
             let prune_opts = rustic_core::PruneOptions::default().ignore_snaps(forget_ids);
             let prune_plan = rustic_repo.prune_plan(&prune_opts)?;
+            // TODO: use send_info_blocking
             tracing::info!("Pruning {}...", repo_loc);
             prune_plan.do_prune(&rustic_repo, &prune_opts)?;
-            tracing::info!("Pruning complete for {}...", repo_loc);
             Ok::<(), anyhow::Error>(())
         });
+        let repo_loc_clone = repo.path();
         tokio::spawn(async move {
             match handle.await {
-                Ok(Err(e)) => tracing::error!("Rustic prune failed: {e}"),
-                Err(e) => tracing::error!("Failed to spawn thread: {e}"),
-                _ => {}
+                Ok(Ok(_)) => send_info!(
+                    progress_channel,
+                    format!("Successfully pruned {repo_loc_clone}")
+                ),
+                Ok(Err(e)) => send_error!(progress_channel, format!("Rustic prune failed: {e}")),
+                Err(e) => send_error!(progress_channel, format!("Failed to spawn thread: {e}")),
             }
         });
         Ok(())
