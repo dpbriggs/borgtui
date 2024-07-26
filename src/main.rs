@@ -567,9 +567,10 @@ async fn handle_action(
                 let successful_clone = successful.clone();
                 let check_semaphore_clone = check_semaphore.clone();
                 let repo_clone = repo.clone();
+                let progress_channel = command_response_send.clone();
+                // TODO: do this spawn inside of the provider
                 tokio::spawn(async move {
-                    let _guard = repo_clone.lock.lock().await;
-                    let res = match repo_clone.check().await {
+                    let res = match repo_clone.check(progress_channel).await {
                         Ok(res) => res,
                         Err(e) => {
                             error!("Verification failed: {e}");

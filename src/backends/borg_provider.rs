@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -295,11 +295,21 @@ impl BackupProvider for BorgProvider {
             .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.path(), e))?;
         Ok(())
     }
-    async fn check(&self, repo: &Repository) -> BorgResult<bool> {
+    async fn check(
+        &self,
+        repo: &Repository,
+        // TODO: Use this
+        progress_channel: CommandResponseSender,
+    ) -> BorgResult<bool> {
+        take_repo_lock!(progress_channel, repo);
+
         let repo_path = repo.path();
         let rsh = repo.rsh();
         let passphrase = repo.get_passphrase()?;
-        let exit = tokio::process::Command::new("borg")
+        let mut process = tokio::process::Command::new("borg")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .env(
                 "BORG_PASSPHRASE",
                 passphrase.map(|p| p.inner()).unwrap_or_default(),
@@ -309,11 +319,33 @@ impl BackupProvider for BorgProvider {
                     .unwrap_or_default(),
             )
             .arg("--progress")
+            .arg("--log-json")
             .arg("check")
             .arg(repo_path)
-            .spawn()?
-            .wait()
-            .await?;
+            .spawn()?;
+
+        if let Some(reader) = process.stderr.take() {
+            let progress_channel_clone = progress_channel.clone();
+            let repo_loc = repo.path();
+            tracing::info!("in reader");
+            tokio::spawn(async move {
+                use tokio::io::AsyncBufReadExt;
+                let bb = tokio::io::BufReader::new(reader);
+                let mut lines = bb.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let msg = line
+                        .parse::<serde_json::Value>()
+                        .ok()
+                        .and_then(|jj| jj.get("message").cloned());
+                    if let Some(msg) = msg {
+                        let info_msg = format!("[{}] {}", repo_loc, msg);
+                        send_info!(progress_channel_clone, info_msg.clone());
+                    }
+                }
+            });
+        }
+
+        let exit = process.wait().await?;
         if !exit.success() {
             tracing::error!("Verification failed for repository: {}", repo);
             show_notification(

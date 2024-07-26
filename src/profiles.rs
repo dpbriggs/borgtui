@@ -10,7 +10,8 @@ use std::{
 
 use crate::{
     backends::{
-        backup_provider::BackupProvider, borg_provider::BorgProvider,
+        backup_provider::BackupProvider,
+        borg_provider::{BorgProvider, CommandResponseSender},
         rustic_provider::RusticProvider,
     },
     borgtui::CommandResponse,
@@ -280,14 +281,21 @@ impl Repository {
         self.backup_provider().compact(self, progress_channel).await
     }
 
-    pub(crate) async fn check(&self) -> BorgResult<bool> {
-        self.backup_provider().check(self).await
+    pub(crate) async fn check(&self, progress_channel: CommandResponseSender) -> BorgResult<bool> {
+        self.backup_provider().check(self, progress_channel).await
     }
 
     pub(crate) fn backup_provider(&self) -> Box<dyn BackupProvider> {
         match self.kind {
             RepositoryKind::Borg => Box::new(BorgProvider {}),
             RepositoryKind::Rustic => Box::new(RusticProvider {}),
+        }
+    }
+
+    pub(crate) fn repo_kind_name(&self) -> &'static str {
+        match self.kind {
+            RepositoryKind::Borg => "Borg",
+            RepositoryKind::Rustic => "Rustic",
         }
     }
 }

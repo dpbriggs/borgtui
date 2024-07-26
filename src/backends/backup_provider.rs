@@ -1,12 +1,13 @@
 use crate::types::RepositoryArchives;
 use crate::{
-    borgtui::CommandResponse,
     profiles::{Passphrase, PruneOptions, Repository},
     BorgResult,
 };
 use async_trait::async_trait;
 use std::{path::PathBuf, sync::Arc};
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::Semaphore;
+
+use super::borg_provider::CommandResponseSender;
 
 #[async_trait]
 pub(crate) trait BackupProvider: Send {
@@ -18,7 +19,7 @@ pub(crate) trait BackupProvider: Send {
         exclude_patterns: &[String],
         exclude_caches: bool,
         repo: Repository,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
         completion_semaphore: Arc<Semaphore>,
     ) -> BorgResult<()>;
     async fn list_archives(&self, repo: &Repository) -> BorgResult<RepositoryArchives>;
@@ -41,12 +42,16 @@ pub(crate) trait BackupProvider: Send {
         &self,
         repo: &Repository,
         prune_options: PruneOptions,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
     ) -> BorgResult<()>;
     async fn compact(
         &self,
         repo: &Repository,
-        progress_channel: mpsc::Sender<CommandResponse>,
+        progress_channel: CommandResponseSender,
     ) -> BorgResult<()>;
-    async fn check(&self, repo: &Repository) -> BorgResult<bool>;
+    async fn check(
+        &self,
+        repo: &Repository,
+        progress_channel: CommandResponseSender,
+    ) -> BorgResult<bool>;
 }

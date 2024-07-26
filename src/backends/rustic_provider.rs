@@ -10,8 +10,8 @@ use crate::{
     borgtui::CommandResponse,
     profiles::{Passphrase, PruneOptions, Repository},
     types::{
-        take_repo_lock, Archive, BackupCreateProgress, BackupCreationProgress, BorgResult,
-        PrettyBytes, RepositoryArchives,
+        send_error, send_info, take_repo_lock, Archive, BackupCreateProgress,
+        BackupCreationProgress, BorgResult, PrettyBytes, RepositoryArchives,
     },
 };
 
@@ -112,6 +112,18 @@ impl ProgressEmitter {
             tracing::error!("Failed to send inc message: {e}");
         }
     }
+
+    fn maybe_send_backup_create_finished(&self) {
+        // Actually finish
+        if self.is_create_backup {
+            let finished = BackupCreateProgress::finished(self.repo_path.clone());
+            let msg = CommandResponse::CreateProgress(finished);
+            if let Err(e) = self.sender.blocking_send(msg) {
+                tracing::error!("Failed to send finish message: {e}");
+            }
+        }
+    }
+
     fn send_message(&self) {
         let mut last_time_guard = self.last_time_sent.write().unwrap();
         *last_time_guard = std::time::Instant::now();
@@ -125,7 +137,7 @@ impl ProgressEmitter {
 
 const SUBSTANTIAL_CHANGE_THRESHOLD: f64 = 0.10;
 const SUBSTANTIAL_CHANGE_THRESHOLD_TIME: std::time::Duration =
-    std::time::Duration::from_millis(300);
+    std::time::Duration::from_millis(200);
 
 impl rustic_core::Progress for ProgressEmitter {
     fn is_hidden(&self) -> bool {
@@ -165,14 +177,6 @@ impl rustic_core::Progress for ProgressEmitter {
         }
         // Ensure the last entry is always sent
         self.send_message();
-        // Actually finish
-        if self.is_create_backup {
-            let finished = BackupCreateProgress::finished(self.repo_path.clone());
-            let msg = CommandResponse::CreateProgress(finished);
-            if let Err(e) = self.sender.blocking_send(msg) {
-                tracing::error!("Failed to send finish message: {e}");
-            }
-        }
     }
 }
 
@@ -196,6 +200,14 @@ impl rustic_core::ProgressBars for ProgressEmitter {
     }
 }
 
+fn rustic_cache_dir() -> Option<PathBuf> {
+    dirs::cache_dir().map(|mut p| {
+        p.push("borgtui");
+        p.push("rustic");
+        p
+    })
+}
+
 pub(crate) struct RusticProvider;
 
 #[async_trait]
@@ -207,7 +219,6 @@ impl BackupProvider for RusticProvider {
         exclude_patterns: &[String],
         exclude_caches: bool,
         repo: Repository,
-        // TODO: use progress channel
         progress_channel: mpsc::Sender<CommandResponse>,
         completion_semaphore: Arc<Semaphore>,
     ) -> BorgResult<()> {
@@ -227,13 +238,10 @@ impl BackupProvider for RusticProvider {
                 .collect::<Vec<_>>(),
         );
 
-        tracing::info!(
-            "Starting rustic backup of {}::{}",
-            repo.path(),
-            &archive_name
-        );
-        let pb = ProgressEmitter::create_backup(progress_channel, repo.path());
-        let res = tokio::task::spawn_blocking(move || -> BorgResult<()> {
+        let fully_qualified_name = format!("{}::{}", repo.path(), &archive_name);
+        tracing::info!("Starting rustic backup of {fully_qualified_name}");
+        let pb = ProgressEmitter::create_backup(progress_channel.clone(), repo.path());
+        let handle = tokio::task::spawn_blocking(move || -> BorgResult<()> {
             // Backend
             let repo_loc = repo.path();
             let backends = rustic_backend::BackendOptions::default()
@@ -243,13 +251,17 @@ impl BackupProvider for RusticProvider {
             // Passphrase
             let passphrase = passphrase_from_repo(&repo)?;
             // Actually open the connection
-            let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
-            let rustic_repo = rustic_core::Repository::new_with_progress(&repo_opts, backends, pb)?
-                .open()?
-                .to_indexed_ids()?;
-            // let rustic_repo = rustic_core::Repository::new(&repo_opts, backends)?
-            //     .open()?
-            //     .to_indexed_ids()?;
+            let mut repo_opts =
+                rustic_core::RepositoryOptions::default().password(passphrase.inner());
+            if let Some(cache_dir) = rustic_cache_dir() {
+                tracing::info!("cache_dir={:?}", &cache_dir);
+                repo_opts = repo_opts.cache_dir(cache_dir);
+                repo_opts.no_cache = false;
+            }
+            let rustic_repo =
+                rustic_core::Repository::new_with_progress(&repo_opts, backends, pb.clone())?
+                    .open()?
+                    .to_indexed_ids()?;
             let backup_opts = rustic_core::BackupOptions::default().ignore_filter_opts(filter_opts);
             let sources = rustic_core::PathList::from_strings(backup_paths);
             let mut snap = rustic_core::SnapshotOptions::default()
@@ -257,14 +269,28 @@ impl BackupProvider for RusticProvider {
                 .to_snapshot()?;
             snap.label = archive_name;
             let snap = rustic_repo.backup(&backup_opts, &sources, snap)?;
-            tracing::info!("Completed rustic backup {}", snap.label);
+            tracing::info!("Snapshot taken! {}", snap.label);
+            pb.maybe_send_backup_create_finished();
             Ok(())
-        })
-        .await?;
-        // BUG: failing to create a thread will cause this semaphore to not increment!
-        // TODO: Fix the bug above
-        completion_semaphore.add_permits(1);
-        res
+        });
+
+        tokio::spawn(async move {
+            match handle.await {
+                Ok(Ok(_)) => {
+                    send_info!(
+                        progress_channel,
+                        format!("Completed rustic backup for {}", fully_qualified_name)
+                    );
+                }
+                Ok(Err(e)) => send_error!(progress_channel, format!("Rustic backup failed: {e}")),
+                Err(e) => send_error!(
+                    progress_channel,
+                    format!("Failed to spawn thread for Rustic backup: {e}")
+                ),
+            }
+            completion_semaphore.add_permits(1);
+        });
+        Ok(())
     }
     async fn list_archives(&self, repo: &Repository) -> BorgResult<RepositoryArchives> {
         let repo_loc = repo.path();
@@ -296,6 +322,7 @@ impl BackupProvider for RusticProvider {
             });
             Ok(RepositoryArchives::new(repo_loc, archives))
         })
+        // TODO: This one actually blocks?
         .await??;
         Ok(res)
     }
@@ -384,7 +411,7 @@ impl BackupProvider for RusticProvider {
             .to_backends()?;
         let passphrase = passphrase_from_repo(repo)?;
 
-        tokio::task::spawn_blocking(move || {
+        let handle = tokio::task::spawn_blocking(move || {
             // Actually open the connection
             let pb = ProgressEmitter::info(progress_channel, repo_loc.clone());
             let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
@@ -418,8 +445,14 @@ impl BackupProvider for RusticProvider {
             prune_plan.do_prune(&rustic_repo, &prune_opts)?;
             tracing::info!("Pruning complete for {}...", repo_loc);
             Ok::<(), anyhow::Error>(())
-        })
-        .await??;
+        });
+        tokio::spawn(async move {
+            match handle.await {
+                Ok(Err(e)) => tracing::error!("Rustic prune failed: {e}"),
+                Err(e) => tracing::error!("Failed to spawn thread: {e}"),
+                _ => {}
+            }
+        });
         Ok(())
     }
     async fn compact(
@@ -428,11 +461,46 @@ impl BackupProvider for RusticProvider {
         _progress_channel: mpsc::Sender<CommandResponse>,
     ) -> BorgResult<()> {
         tracing::warn!(
-            "BorgTUI's implemenetation of Rustic repositories automatically compact when pruning!"
+            "BorgTUI's implementation of Rustic repositories automatically compact when pruning!"
         );
         Ok(())
     }
-    async fn check(&self, _repo: &Repository) -> BorgResult<bool> {
-        todo!()
+
+    async fn check(
+        &self,
+        repo: &Repository,
+        progress_channel: CommandResponseSender,
+    ) -> BorgResult<bool> {
+        take_repo_lock!(progress_channel, repo);
+        let repo_loc = repo.path();
+
+        let backends = rustic_backend::BackendOptions::default()
+            .repository(&repo_loc)
+            .to_backends()?;
+        let passphrase = passphrase_from_repo(repo)?;
+
+        let progress_channel_clone = progress_channel.clone();
+        let res = tokio::task::spawn_blocking(move || {
+            let pb = ProgressEmitter::info(progress_channel_clone, repo_loc.clone());
+            let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
+            let rustic_repo =
+                rustic_core::Repository::new_with_progress(&repo_opts, backends, pb)?.open()?;
+            let check_options = rustic_core::CheckOptions::default();
+            rustic_repo.check(check_options)
+        })
+        .await?;
+        match res {
+            Ok(_) => {
+                send_info!(
+                    progress_channel,
+                    format!("Verification succeeded for repository: {repo}")
+                );
+                Ok(true)
+            }
+            Err(e) => {
+                send_error!(progress_channel, format!("Rustic check failed: {e}"));
+                Ok(false)
+            }
+        }
     }
 }

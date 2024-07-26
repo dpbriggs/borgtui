@@ -17,7 +17,7 @@ macro_rules! send_info {
         if let Err(e) = $channel.send(CommandResponse::Info($info_message)).await {
             tracing::error!(
                 "Error occurred while sending info message \"{}\": {}",
-                $info_message,
+                &$info_message,
                 e
             );
         }

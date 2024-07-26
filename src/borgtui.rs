@@ -1459,7 +1459,7 @@ impl BorgTui {
                     )
                 } else {
                     Span::styled(
-                        format!("Backup {}", repo),
+                        format!("Backup {} {}", repo.repo_kind_name(), repo),
                         Style::default()
                             .fg(Color::LightBlue)
                             .add_modifier(Modifier::BOLD),
