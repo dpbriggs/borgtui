@@ -1,5 +1,6 @@
 use std::{
     path::PathBuf,
+    process::Stdio,
     sync::{
         atomic::{AtomicBool, AtomicU64},
         Arc, RwLock,
@@ -389,8 +390,8 @@ impl BackupProvider for RusticProvider {
         let key_opts = rustic_core::KeyOptions::default();
         let config_opts = rustic_core::ConfigOptions::default();
         tracing::info!("Initializing rustic repo: {repo_loc}");
-        // TODO: Use the progress bar one!
         rustic_core::Repository::new(&repo_opts, backends)?.init(&key_opts, &config_opts)?;
+        tracing::info!("Successfully initialized rustic repo: {repo_loc}");
         Ok(())
     }
 
@@ -415,7 +416,7 @@ impl BackupProvider for RusticProvider {
         let mountpoint_s = mountpoint.to_string_lossy().to_string();
         let repo_path = repo.path();
         let passphrase = repo.get_passphrase()?;
-        let exit = tokio::process::Command::new("restic")
+        tokio::process::Command::new("restic")
             .env(
                 "RESTIC_PASSWORD",
                 passphrase.map(|p| p.inner()).unwrap_or_default(),
@@ -424,18 +425,22 @@ impl BackupProvider for RusticProvider {
             .arg(repo_path)
             .arg("mount")
             .arg(&mountpoint_s)
-            .spawn()?
-            .wait()
-            .await?;
-        tracing::info!("Successfully mounted at {mountpoint_s}");
-        tracing::info!("Restic exited with code {exit:?}");
+            .stdout(Stdio::null())
+            .spawn()?;
+        tracing::info!("Successfully mounted at {mountpoint_s} in the background");
         Ok(())
     }
 
-    // TODO: Figure out unmounting
+    // TODO: Wire unmounting in with repositories
     #[allow(unused)]
     async fn unmount(&self, mountpoint: PathBuf) -> BorgResult<()> {
-        todo!()
+        let exit = tokio::process::Command::new("umount")
+            .arg(mountpoint)
+            .spawn()?
+            .wait()
+            .await?;
+        tracing::info!("umount finished with exitcode {exit:?}");
+        Ok(())
     }
 
     async fn prune(
