@@ -10,7 +10,7 @@ use crate::{
     types::BorgResult,
 };
 
-const ABOUT: &str = "A TUI and CLI to help automate borg backups :^)";
+const ABOUT: &str = "A TUI and CLI to help automate borg (and rustic) backups :^)";
 
 #[derive(Parser, Debug, Clone)]
 #[command(
@@ -36,7 +36,7 @@ pub(crate) struct Args {
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct PassphraseSource {
-    /// Use a keyfile (a file path containing the borg passphrase)
+    /// Use a keyfile (a file path containing the repo passphrase)
     #[arg(short, long)]
     pub(crate) keyfile: Option<PathBuf>,
     /// Store the borg passphrase in the config file.
@@ -83,7 +83,8 @@ pub(crate) enum Action {
         /// - /hdd2/NewBackup
         location: String,
 
-        #[arg(short = 's', long, default_value = "borg")]
+        /// Repository kind ("borg" or "rustic").
+        #[arg(long, default_value = "borg")]
         kind: RepositoryKind,
 
         #[command(flatten)]
@@ -112,8 +113,8 @@ pub(crate) enum Action {
         #[arg(short, long)]
         rsh: Option<String>,
 
-        /// Whether this is a "borg" or "rustic" repo.
-        #[arg(short = 's', long, default_value = "borg")]
+        /// Repository kind ("borg" or "rustic").
+        #[arg(long, default_value = "borg")]
         kind: RepositoryKind,
 
         #[command(flatten)]

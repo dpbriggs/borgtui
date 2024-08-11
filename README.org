@@ -1,6 +1,6 @@
 * BorgTUI
 
-A simple TUI and CLI to automate your Borg backups :^)
+A simple TUI and CLI to automate your Borg (and Rustic) backups :^)
 
 [[https://user-images.githubusercontent.com/5560032/244952009-ae19036a-8044-4c00-8d42-5305ad6a9860.png][https://user-images.githubusercontent.com/5560032/244952009-ae19036a-8044-4c00-8d42-5305ad6a9860.png]]
 
@@ -246,6 +246,29 @@ journalctl --user -u borgtui-create-default
 Simply issue =borgtui create= with the scheduling system of your choosing (cron, etc).
 
 ** Appendix
+
+*** **Experimental** Rustic Backend Support
+
+BorgTUI supports [[https://rustic.cli.rs/][Rustic]] as a native backup backend. The configuration is nearly identical except for a repository `kind` in configs:
+
+#+begin_src json
+...
+  "repos": [
+    {
+      "kind": "Rustic"
+      "path": "/home/david/restic-test-repo",
+       ...
+    },
+  ]
+...
+#+end_src
+
+To initialize a rustic repo follow the usual init process but with `--kind rustic` passed in.
+Same idea for adding repos -- just do `borgtui add-repo --kind rustic <..>`.
+
+A wrinkle is that `restic` must be install for mounting to work (as it's not yet [[https://github.com/rustic-rs/rustic/issues/971][supported in rustic]]).
+
+**WARNING**: Rustic support is not production grade yet. It's intended to provide N+1 redundancy in terms of backup providers. Please use it in conjunction with other backup providers (borg, whatever you use, etc).
 
 *** Manual Installation
 

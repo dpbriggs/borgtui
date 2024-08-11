@@ -123,7 +123,9 @@ impl FromStr for RepositoryKind {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "borg" => Ok(RepositoryKind::Borg),
+            "Borg" => Ok(RepositoryKind::Borg),
             "rustic" => Ok(RepositoryKind::Rustic),
+            "Rustic" => Ok(RepositoryKind::Rustic),
             otherwise => Err(anyhow::anyhow!("Unknown repository kind: {otherwise}")),
         }
     }
