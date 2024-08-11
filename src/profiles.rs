@@ -235,6 +235,10 @@ impl Repository {
         self.path.clone()
     }
 
+    pub(crate) fn path_ref(&self) -> &str {
+        &self.path
+    }
+
     pub(crate) fn rsh(&self) -> Option<String> {
         self.rsh.clone()
     }

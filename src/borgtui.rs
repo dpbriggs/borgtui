@@ -1,8 +1,8 @@
 use crate::profiles::Profile;
 use crate::profiles::{ProfileOperation, Repository};
 use crate::types::{
-    BackupCreateProgress, BackupCreationProgress, BorgResult, CheckProgress, PrettyBytes,
-    RepositoryArchives, RingBuffer,
+    BackupCreateProgress, BackupCreationProgress, BorgResult, CheckComplete, CheckProgress,
+    PrettyBytes, RepositoryArchives, RingBuffer,
 };
 use crossterm::event::{KeyEvent, KeyModifiers};
 use crossterm::{
@@ -25,7 +25,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem},
     Frame, Terminal,
 };
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::io::Stdout;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -45,6 +45,7 @@ const CHECK_STATS_RETENTION_AMOUNT: usize = 7;
 #[derive(Debug)]
 pub(crate) enum Command {
     CreateBackup(Profile),
+    CheckRepository(Repository),
     SaveProfile(Profile),
     UpdateProfileAndSave(Profile, ProfileOperation, Arc<AtomicBool>),
     ListArchives(Repository),
@@ -61,6 +62,7 @@ pub(crate) enum Command {
 pub(crate) enum CommandResponse {
     CreateProgress(BackupCreateProgress),
     CheckProgress(CheckProgress),
+    CheckComplete(CheckComplete),
     ListArchiveResult(RepositoryArchives),
     ProfileUpdated(Profile),
     Info(String),
@@ -97,6 +99,31 @@ impl BackupStat {
 #[derive(Default)]
 struct CheckProgressState {
     check_stats: HashMap<String, RingBuffer<String, CHECK_STATS_RETENTION_AMOUNT>>,
+    finished_repos: HashMap<String, Option<String>>,
+}
+
+enum CheckCompletionStatus {
+    NotCompletedYet,
+    SuccessfullyCompleted,
+    Failed(String),
+}
+
+impl CheckProgressState {
+    fn stats(&self, repo_path: &str) -> Option<&RingBuffer<String, CHECK_STATS_RETENTION_AMOUNT>> {
+        self.check_stats.get(repo_path)
+    }
+    fn completion_status(&self, repo_path: &str) -> CheckCompletionStatus {
+        match self.finished_repos.get(repo_path) {
+            Some(value) => match value {
+                Some(error) => CheckCompletionStatus::Failed(error.clone()),
+                None => CheckCompletionStatus::SuccessfullyCompleted,
+            },
+            None => CheckCompletionStatus::NotCompletedYet,
+        }
+    }
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
 }
 
 #[derive(Default)]
@@ -134,6 +161,7 @@ enum UIState {
     ProfileView,
     BackingUp,
     ListAllArchives,
+    CheckingRepos,
 }
 
 #[derive(Debug)]
@@ -895,6 +923,12 @@ impl BorgTui {
                     self.add_error(err_msg);
                 }
             }
+            KeyCode::Char('y') => {
+                toggle_to_previous_state_or_run!(self, UIState::CheckingRepos, {
+                    self.start_checking();
+                    self.send_checking_command()?;
+                });
+            }
             KeyCode::Char('m') => {
                 self.send_list_archives_command()?;
                 self.add_popup(MountPopup::new(false));
@@ -1096,6 +1130,14 @@ impl BorgTui {
         Ok(())
     }
 
+    fn send_checking_command(&mut self) -> BorgResult<()> {
+        for repo in self.profile.active_repositories() {
+            let command = Command::CheckRepository(repo.clone());
+            self.command_channel.blocking_send(command)?;
+        }
+        Ok(())
+    }
+
     fn send_quit_command(&mut self) -> BorgResult<()> {
         let command = Command::Quit;
         self.command_channel.blocking_send(command)?;
@@ -1121,6 +1163,11 @@ impl BorgTui {
     fn start_backing_up(&mut self) {
         self.switch_ui_state(UIState::BackingUp);
         self.backup_state.clear_finished();
+    }
+
+    fn start_checking(&mut self) {
+        self.switch_ui_state(UIState::CheckingRepos);
+        self.check_progress_state.clear();
     }
 
     fn start_list_archive_state(&mut self) {
@@ -1189,6 +1236,11 @@ impl BorgTui {
                     .entry(check_progress.repo_loc)
                     .or_default()
                     .push_back(check_progress.message);
+            }
+            CommandResponse::CheckComplete(check_complete) => {
+                self.check_progress_state
+                    .finished_repos
+                    .insert(check_complete.repo_loc, check_complete.error);
             }
             CommandResponse::Info(info_string) => {
                 info!(info_string);
@@ -1416,6 +1468,89 @@ impl BorgTui {
         frame.render_widget(chart, area);
     }
 
+    fn draw_check_disclaimer(&self, frame: &mut Frame, area: Rect) {
+        // TODO: Make this fancy and colourful
+        let list = List::new([
+            ListItem::new(Text::from(
+                "Consider using `borgtui check` or schedule it in the background with",
+            )),
+            ListItem::new(Text::from("`borgtui systemd-create-unit --check-unit`")),
+        ]);
+        let check_progress_list = list.block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Checking takes a long time!"),
+        );
+        frame.render_widget(check_progress_list, area);
+    }
+
+    fn draw_check_list(&self, frame: &mut Frame, area: Rect) {
+        // TODO: Refactor this into a shared function
+        let check_constraints = std::iter::repeat(Constraint::Percentage(
+            100 / self.profile.num_repos() as u16,
+        ))
+        .take(self.profile.num_repos())
+        .collect::<Vec<_>>();
+        let areas = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(check_constraints)
+            .split(area);
+        self.profile
+            .repositories()
+            .iter()
+            .zip(areas.as_ref())
+            .for_each(|(repo, area)| {
+                let mut check_progress_for_repo = self
+                    .check_progress_state
+                    .stats(repo.path_ref())
+                    .map(|check_stat| {
+                        check_stat
+                            .iter()
+                            .map(|status| ListItem::new(Text::from(format!("> {}", status))))
+                            .collect::<VecDeque<_>>()
+                    })
+                    .unwrap_or_default();
+                if repo.disabled() {
+                    check_progress_for_repo
+                        .insert(0, ListItem::new("# Repo disabled, not checking..."));
+                }
+                let check_title = match self.check_progress_state.completion_status(repo.path_ref())
+                {
+                    CheckCompletionStatus::NotCompletedYet => {
+                        if repo.disabled() {
+                            // TODO: Standardize these styles under common functions
+                            Span::styled(
+                                format!("DISABLED {}", repo),
+                                Style::default()
+                                    .fg(Color::Gray)
+                                    .add_modifier(Modifier::BOLD),
+                            )
+                        } else {
+                            Span::styled(
+                                format!("Checking {}...", repo),
+                                Style::default()
+                                    .fg(Color::LightBlue)
+                                    .add_modifier(Modifier::BOLD),
+                            )
+                        }
+                    }
+                    CheckCompletionStatus::SuccessfullyCompleted => Span::styled(
+                        format!("FINISHED Check {}", repo),
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    CheckCompletionStatus::Failed(error_message) => Span::styled(
+                        format!("FAILED Check {}: {}", repo, error_message),
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    ),
+                };
+                let check_progress_list = List::new(check_progress_for_repo)
+                    .block(Block::default().borders(Borders::ALL).title(check_title));
+                frame.render_widget(check_progress_list, *area);
+            })
+    }
+
     fn draw_backup_list(&self, frame: &mut Frame, area: Rect) {
         // TODO: Handle running out of vertical space!
         let backup_constraints = std::iter::repeat(Constraint::Percentage(
@@ -1442,7 +1577,7 @@ impl BorgTui {
                                 let text = Text::from(format!("> {}", path));
                                 ListItem::new(text)
                             })
-                            .collect::<Vec<_>>()
+                            .collect::<VecDeque<_>>()
                     })
                     .unwrap_or_default();
                 if let Some(backup_stat) = self.latest_stats_for_repo(&repo.path) {
@@ -1556,6 +1691,7 @@ impl BorgTui {
             Line::from("• Press 'l' to list archives"),
             Line::from("• Press 'a' to add a backup path"),
             Line::from("• Press 's' to save profile"),
+            Line::from("• Press 'y' to check"),
             Line::from("• Press 'c' to compact"),
             Line::from("• Press 'm' to mount"),
             Line::from("• Press 'M' to mount a repo"),
@@ -1712,6 +1848,14 @@ impl BorgTui {
             }
             UIState::ListAllArchives => {
                 self.draw_all_archive_lists(frame, right_area);
+            }
+            UIState::CheckingRepos => {
+                let check_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(15), Constraint::Percentage(85)].as_ref())
+                    .split(right_area);
+                self.draw_check_disclaimer(frame, check_chunks[0]);
+                self.draw_check_list(frame, check_chunks[1]);
             }
         }
     }

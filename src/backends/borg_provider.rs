@@ -16,8 +16,9 @@ use crate::{
     borgtui::CommandResponse,
     profiles::{Passphrase, Repository},
     types::{
-        send_check_progress, send_error, send_info, take_repo_lock, Archive, BackupCreateProgress,
-        BackupCreationProgress, BorgResult, CommandResponseSender, RepositoryArchives,
+        send_check_complete, send_check_progress, send_error, send_info, take_repo_lock, Archive,
+        BackupCreateProgress, BackupCreationProgress, BorgResult, CommandResponseSender,
+        RepositoryArchives,
     },
 };
 
@@ -318,7 +319,7 @@ impl BackupProvider for BorgProvider {
             .arg("--progress")
             .arg("--log-json")
             .arg("check")
-            .arg(repo_path)
+            .arg(repo_path.clone())
             .spawn()?;
 
         if let Some(reader) = process.stderr.take() {
@@ -343,7 +344,10 @@ impl BackupProvider for BorgProvider {
 
         let exit = process.wait().await?;
         if !exit.success() {
+            let err = format!("Borg check failed for {repo_path}");
+            send_check_complete!(progress_channel, repo_path, Some(err));
         } else {
+            send_check_complete!(progress_channel, repo_path, None);
             send_info!(
                 progress_channel,
                 format!("Verification succeeded for repository: {}", repo)

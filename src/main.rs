@@ -145,6 +145,20 @@ async fn handle_tui_command(
             });
             Ok(false)
         }
+        Command::CheckRepository(repo) => {
+            tokio::spawn(async move {
+                send_info!(
+                    command_response_send,
+                    format!("Checking {}", repo),
+                    "Failed to send start checking info: {}"
+                );
+                log_on_error!(
+                    repo.check(command_response_send).await,
+                    "Failed to check: {}"
+                );
+            });
+            Ok(false)
+        }
         Command::Compact(repo) => {
             tokio::spawn(async move {
                 send_info!(
@@ -353,6 +367,18 @@ async fn handle_command_response(command_response_recv: mpsc::Receiver<CommandRe
             },
             CommandResponse::CheckProgress(check_progress) => {
                 info!("[{}] {}", check_progress.repo_loc, check_progress.message);
+            }
+            CommandResponse::CheckComplete(check_complete) => {
+                match check_complete.error {
+                    Some(error) => error!(
+                        "[{}] Check failed with message: {}",
+                        check_complete.repo_loc, error
+                    ),
+                    None => info!(
+                        "[{}] Check successfully completed!",
+                        check_complete.repo_loc
+                    ),
+                };
             }
             CommandResponse::Info(info_log) => info!("{}", info_log),
             CommandResponse::ListArchiveResult(list_archive_result) => {

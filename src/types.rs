@@ -27,6 +27,21 @@ macro_rules! send_check_progress {
 pub(crate) use send_check_progress;
 
 /// Send a CommandResponse::Info in a channel.
+macro_rules! send_check_complete {
+    ($channel:expr, $repo_loc:expr, $error:expr) => {
+        if let Err(e) = $channel
+            .send(crate::borgtui::CommandResponse::CheckComplete(
+                crate::types::CheckComplete::new($repo_loc, $error),
+            ))
+            .await
+        {
+            tracing::error!("Error occurred while sending check progress message: {}", e);
+        }
+    };
+}
+pub(crate) use send_check_complete;
+
+/// Send a CommandResponse::Info in a channel.
 macro_rules! send_info {
     ($channel:expr, $info_message:expr) => {
         if let Err(e) = $channel.send(CommandResponse::Info($info_message)).await {
@@ -298,6 +313,18 @@ pub(crate) async fn show_notification<I: Into<Timeout>>(
         .show_async()
         .await?;
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct CheckComplete {
+    pub(crate) repo_loc: String,
+    pub(crate) error: Option<String>,
+}
+
+impl CheckComplete {
+    pub(crate) fn new(repo_loc: String, error: Option<String>) -> Self {
+        Self { repo_loc, error }
+    }
 }
 
 #[derive(Debug, Clone)]

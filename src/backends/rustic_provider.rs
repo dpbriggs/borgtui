@@ -14,7 +14,7 @@ use crate::{
     borgtui::CommandResponse,
     profiles::{Passphrase, PruneOptions, Repository},
     types::{
-        send_error, send_info, take_repo_lock, Archive, BackupCreateProgress,
+        send_check_complete, send_error, send_info, take_repo_lock, Archive, BackupCreateProgress,
         BackupCreationProgress, BorgResult, CheckProgress, CommandResponseSender, PrettyBytes,
         RepositoryArchives,
     },
@@ -543,6 +543,7 @@ impl BackupProvider for RusticProvider {
         .await?;
         match res {
             Ok(_) => {
+                send_check_complete!(progress_channel, repo.path(), None);
                 send_info!(
                     progress_channel,
                     format!("Verification succeeded for repository: {repo}")
@@ -550,7 +551,9 @@ impl BackupProvider for RusticProvider {
                 Ok(true)
             }
             Err(e) => {
-                send_error!(progress_channel, format!("Rustic check failed: {e}"));
+                let err_msg = format!("Rustic check failed: {e}");
+                send_check_complete!(progress_channel, repo.path(), Some(err_msg.clone()));
+                send_error!(progress_channel, err_msg.clone());
                 Ok(false)
             }
         }
