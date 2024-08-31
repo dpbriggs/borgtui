@@ -1676,9 +1676,11 @@ impl BorgTui {
                     vec![Row::new([cell, Cell::from("")])]
                 }
             };
-            let archive_table = Table::new(archive_rows)
-                .widths(&[Constraint::Percentage(30), Constraint::Percentage(70)])
-                .block(Block::default().borders(Borders::ALL).title(repo_name));
+            let archive_table = Table::new(
+                archive_rows,
+                &[Constraint::Percentage(30), Constraint::Percentage(70)],
+            )
+            .block(Block::default().borders(Borders::ALL).title(repo_name));
             frame.render_widget(archive_table, *area)
         }
     }
@@ -1743,13 +1745,15 @@ impl BorgTui {
             let path_cell = Cell::from(path_name);
             Row::new([size_cell, path_cell])
         });
-        let table = Table::new(rows)
-            .header(header_row)
-            .widths(&[Constraint::Percentage(10), Constraint::Percentage(90)])
-            .block(Block::default().borders(Borders::ALL).title(format!(
-                "Backup Sources ({})",
-                PrettyBytes(total_backup_dir_size)
-            )));
+        let table = Table::new(
+            rows,
+            &[Constraint::Percentage(10), Constraint::Percentage(90)],
+        )
+        .header(header_row)
+        .block(Block::default().borders(Borders::ALL).title(format!(
+            "Backup Sources ({})",
+            PrettyBytes(total_backup_dir_size)
+        )));
         frame.render_widget(table, backup_paths_area);
     }
 
@@ -1770,14 +1774,16 @@ impl BorgTui {
                 ])
             })
             .collect::<Vec<_>>();
-        let table = Table::new(rows)
-            .header(header_row)
-            .widths(&[Constraint::Percentage(50), Constraint::Percentage(50)])
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Mounted Directories"),
-            );
+        let table = Table::new(
+            rows,
+            &[Constraint::Percentage(50), Constraint::Percentage(50)],
+        )
+        .header(header_row)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Mounted Directories"),
+        );
         frame.render_widget(table, backup_paths_area);
     }
 

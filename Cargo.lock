@@ -1852,15 +1852,6 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
@@ -2844,17 +2835,18 @@ dependencies = [
 
 [[package]]
 name = "ratatui"
-version = "0.24.0"
+version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ebc917cfb527a566c37ecb94c7e3fd098353516fb4eb6bea17015ade0182425"
+checksum = "a5659e52e4ba6e07b2dad9f1158f578ef84a73762625ddb51536019f34d180eb"
 dependencies = [
  "bitflags 2.4.2",
  "cassowary",
  "crossterm 0.27.0",
  "indoc",
- "itertools 0.11.0",
+ "itertools",
  "lru",
  "paste",
+ "stability",
  "strum 0.25.0",
  "unicode-segmentation",
  "unicode-width",
@@ -3093,7 +3085,7 @@ dependencies = [
  "displaydoc",
  "hex",
  "humantime",
- "itertools 0.12.1",
+ "itertools",
  "log",
  "opendal",
  "rand",
@@ -3139,7 +3131,7 @@ dependencies = [
  "humantime",
  "ignore",
  "integer-sqrt",
- "itertools 0.12.1",
+ "itertools",
  "log",
  "nix 0.27.1",
  "pariter",
@@ -3628,6 +3620,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be3c6519de7ca611f71ef7e8a56eb57aa1c818fecb5242d0a0f39c83776c210c"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "stability"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebd1b177894da2a2d9120208c3386066af06a488255caabc5de8ddca22dbc3ce"
+dependencies = [
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
