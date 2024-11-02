@@ -315,7 +315,7 @@ impl InputFieldWithSuggestions {
         let input_box_size = 3;
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(&[
+            .constraints([
                 Constraint::Length(area.height - input_box_size),
                 Constraint::Max(input_box_size),
             ])
@@ -707,7 +707,7 @@ impl Popup for ConfirmationPopup {
         frame.render_widget(ratatui::widgets::Clear, area);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(&[Constraint::Percentage(90), Constraint::Min(1)])
+            .constraints([Constraint::Percentage(90), Constraint::Min(1)])
             .split(area);
         let (text_area, button_area) = (chunks[0], chunks[1]);
         // Render message
@@ -1675,7 +1675,7 @@ impl BorgTui {
             };
             let archive_table = Table::new(
                 archive_rows,
-                &[Constraint::Percentage(30), Constraint::Percentage(70)],
+                [Constraint::Percentage(30), Constraint::Percentage(70)],
             )
             .block(Block::default().borders(Borders::ALL).title(repo_name));
             frame.render_widget(archive_table, *area)
@@ -1718,7 +1718,7 @@ impl BorgTui {
     fn split_screen(&self, frame: &mut Frame) -> (Rect, Rect) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(&[Constraint::Percentage(20), Constraint::Percentage(80)])
+            .constraints([Constraint::Percentage(20), Constraint::Percentage(80)])
             .split(frame.size());
         (chunks[0], chunks[1])
     }
@@ -1744,7 +1744,7 @@ impl BorgTui {
         });
         let table = Table::new(
             rows,
-            &[Constraint::Percentage(10), Constraint::Percentage(90)],
+            [Constraint::Percentage(10), Constraint::Percentage(90)],
         )
         .header(header_row)
         .block(Block::default().borders(Borders::ALL).title(format!(
@@ -1773,7 +1773,7 @@ impl BorgTui {
             .collect::<Vec<_>>();
         let table = Table::new(
             rows,
-            &[Constraint::Percentage(50), Constraint::Percentage(50)],
+            [Constraint::Percentage(50), Constraint::Percentage(50)],
         )
         .header(header_row)
         .block(
@@ -1843,7 +1843,7 @@ impl BorgTui {
             UIState::BackingUp => {
                 let backing_up_chunks = Layout::default()
                     .direction(Direction::Vertical)
-                    .constraints(&[Constraint::Percentage(40), Constraint::Percentage(60)])
+                    .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
                     .split(right_area);
                 let (top_right, bottom_right) = (backing_up_chunks[0], backing_up_chunks[1]);
                 self.draw_backup_chart(frame, top_right);
@@ -1855,7 +1855,7 @@ impl BorgTui {
             UIState::CheckingRepos => {
                 let check_chunks = Layout::default()
                     .direction(Direction::Vertical)
-                    .constraints(&[Constraint::Percentage(15), Constraint::Percentage(85)])
+                    .constraints([Constraint::Percentage(15), Constraint::Percentage(85)])
                     .split(right_area);
                 self.draw_check_disclaimer(frame, check_chunks[0]);
                 self.draw_check_list(frame, check_chunks[1]);
@@ -1868,7 +1868,7 @@ impl BorgTui {
         if !self.info_logs.is_empty() {
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints(&[Constraint::Percentage(50), Constraint::Percentage(50)])
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
                 .split(left);
             let (left_top, left_bottom) = (chunks[0], chunks[1]);
             left = left_top;
@@ -1879,7 +1879,7 @@ impl BorgTui {
         if let Some(popup) = self.popup_stack.last() {
             let top_left = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints(&[
+                .constraints([
                     Constraint::Percentage(10),
                     Constraint::Percentage(80),
                     Constraint::Percentage(10),
@@ -1887,7 +1887,7 @@ impl BorgTui {
                 .split(frame.size())[1];
             let corner = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints(&[
+                .constraints([
                     Constraint::Percentage(10),
                     Constraint::Percentage(80),
                     Constraint::Percentage(10),
