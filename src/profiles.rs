@@ -286,6 +286,10 @@ impl Repository {
         self.backup_provider().check(self, progress_channel).await
     }
 
+    pub(crate) async fn repair(&self, progress_channel: CommandResponseSender) -> BorgResult<bool> {
+        self.backup_provider().repair(self, progress_channel).await
+    }
+
     pub(crate) fn backup_provider(&self) -> Box<dyn BackupProvider> {
         match self.kind {
             RepositoryKind::Borg => Box::new(BorgProvider {}),

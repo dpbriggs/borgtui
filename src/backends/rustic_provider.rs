@@ -558,4 +558,12 @@ impl BackupProvider for RusticProvider {
             }
         }
     }
+    async fn repair(
+        &self,
+        _repo: &Repository,
+        _progress_channel: CommandResponseSender,
+    ) -> BorgResult<bool> {
+        // TODO: Implement this!
+        anyhow::bail!("Unimplemented")
+    }
 }

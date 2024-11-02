@@ -52,4 +52,9 @@ pub(crate) trait BackupProvider: Send {
         repo: &Repository,
         progress_channel: CommandResponseSender,
     ) -> BorgResult<bool>;
+    async fn repair(
+        &self,
+        repo: &Repository,
+        progress_channel: CommandResponseSender,
+    ) -> BorgResult<bool>;
 }

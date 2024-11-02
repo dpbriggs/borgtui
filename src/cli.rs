@@ -173,6 +173,11 @@ pub(crate) enum Action {
         /// If specified, only check these repositories. Consider using `list-repos` to get repo urls.
         only_these_repos: Option<Vec<String>>,
     },
+    /// Repair backups. This is potentially dangerous - use with caution!
+    Repair {
+        /// If specified, only repair these repositories. Consider using `list-repos` to get repo urls.
+        only_these_repos: Option<Vec<String>>,
+    },
     /// Create a systemd unit to create a backup
     ///
     /// If `--install` is specified it will install the unit as a user unit under

@@ -76,6 +76,72 @@ pub(crate) async fn hack_unmount(mountpoint: PathBuf) -> BorgResult<()> {
     .map_err(|e| anyhow!("Failed to umount path {:?}: {}", mountpoint, e))
 }
 
+async fn borg_check(
+    repo: &Repository,
+    passphrase: Option<Passphrase>,
+    progress_channel: CommandResponseSender,
+    repair: bool,
+) -> BorgResult<bool> {
+    let repo_path = repo.path();
+    let rsh = repo.rsh();
+    let mut extra_args = vec![];
+    if repair {
+        extra_args.push("--repair");
+    }
+    let mut process = tokio::process::Command::new("borg")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env(
+            "BORG_PASSPHRASE",
+            passphrase.map(|p| p.inner()).unwrap_or_default(),
+        )
+        .env("BORG_CHECK_I_KNOW_WHAT_I_AM_DOING", "YES")
+        .args(
+            rsh.map(|r| vec!["--rsh".to_string(), r])
+                .unwrap_or_default(),
+        )
+        .arg("--progress")
+        .arg("--log-json")
+        .arg("check")
+        .args(extra_args)
+        .arg(repo_path.clone())
+        .spawn()?;
+
+    if let Some(reader) = process.stderr.take() {
+        let progress_channel_clone = progress_channel.clone();
+        let repo_loc = repo.path();
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let bb = tokio::io::BufReader::new(reader);
+            let mut lines = bb.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let msg = line
+                    .parse::<serde_json::Value>()
+                    .ok()
+                    .and_then(|jj| jj.get("message").cloned());
+                if let Some(msg) = msg {
+                    let msg = format!("{}", msg);
+                    send_check_progress!(progress_channel_clone, repo_loc.clone(), msg);
+                }
+            }
+        });
+    }
+
+    let exit = process.wait().await?;
+    if !exit.success() {
+        let err = format!("Borg check failed for {repo_path}");
+        send_check_complete!(progress_channel, repo_path, Some(err));
+    } else {
+        send_check_complete!(progress_channel, repo_path, None);
+        send_info!(
+            progress_channel,
+            format!("Verification succeeded for repository: {}", repo)
+        );
+    }
+    Ok(exit.success())
+}
+
 use super::backup_provider::BackupProvider;
 
 pub(crate) struct BorgProvider;
@@ -300,59 +366,14 @@ impl BackupProvider for BorgProvider {
         progress_channel: CommandResponseSender,
     ) -> BorgResult<bool> {
         take_repo_lock!(progress_channel, repo);
-
-        let repo_path = repo.path();
-        let rsh = repo.rsh();
-        let passphrase = repo.get_passphrase()?;
-        let mut process = tokio::process::Command::new("borg")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .env(
-                "BORG_PASSPHRASE",
-                passphrase.map(|p| p.inner()).unwrap_or_default(),
-            )
-            .args(
-                rsh.map(|r| vec!["--rsh".to_string(), r])
-                    .unwrap_or_default(),
-            )
-            .arg("--progress")
-            .arg("--log-json")
-            .arg("check")
-            .arg(repo_path.clone())
-            .spawn()?;
-
-        if let Some(reader) = process.stderr.take() {
-            let progress_channel_clone = progress_channel.clone();
-            let repo_loc = repo.path();
-            tokio::spawn(async move {
-                use tokio::io::AsyncBufReadExt;
-                let bb = tokio::io::BufReader::new(reader);
-                let mut lines = bb.lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let msg = line
-                        .parse::<serde_json::Value>()
-                        .ok()
-                        .and_then(|jj| jj.get("message").cloned());
-                    if let Some(msg) = msg {
-                        let msg = format!("{}", msg);
-                        send_check_progress!(progress_channel_clone, repo_loc.clone(), msg);
-                    }
-                }
-            });
-        }
-
-        let exit = process.wait().await?;
-        if !exit.success() {
-            let err = format!("Borg check failed for {repo_path}");
-            send_check_complete!(progress_channel, repo_path, Some(err));
-        } else {
-            send_check_complete!(progress_channel, repo_path, None);
-            send_info!(
-                progress_channel,
-                format!("Verification succeeded for repository: {}", repo)
-            );
-        }
-        Ok(exit.success())
+        borg_check(repo, repo.get_passphrase()?, progress_channel, false).await
+    }
+    async fn repair(
+        &self,
+        repo: &Repository,
+        progress_channel: CommandResponseSender,
+    ) -> BorgResult<bool> {
+        take_repo_lock!(progress_channel, repo);
+        borg_check(repo, repo.get_passphrase()?, progress_channel, true).await
     }
 }

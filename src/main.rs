@@ -636,6 +636,64 @@ async fn handle_action(
             show_notification(title, &message, EXTENDED_NOTIFICATION_DURATION).await?;
             Ok(())
         }
+        Action::Repair { only_these_repos } => {
+            let profile = Profile::open_or_create(&profile_name).await?;
+            let repair_semaphore = Arc::new(Semaphore::new(0));
+            let successful = Arc::new(AtomicBool::new(true));
+            for repo in profile.active_repositories() {
+                let should_check = only_these_repos
+                    .as_ref()
+                    .map(|repos_to_repair| repos_to_repair.contains(&repo.path()))
+                    .unwrap_or(true);
+                if !should_check {
+                    tracing::info!("Skipping repair of {}", repo.path());
+                    repair_semaphore.add_permits(1);
+                    continue;
+                }
+                tracing::info!("Starting repair of {}", repo.path());
+                let successful_clone = successful.clone();
+                let repair_semaphore_clone = repair_semaphore.clone();
+                let repo_clone = repo.clone();
+                let progress_channel = command_response_send.clone();
+                // TODO: do this spawn inside of the provider
+                tokio::spawn(async move {
+                    let res = match repo_clone.repair(progress_channel).await {
+                        Ok(res) => res,
+                        Err(e) => {
+                            error!("Repair failed: {e}");
+                            false
+                        }
+                    };
+                    if !res {
+                        tracing::error!("Repair failed for repository: {}", repo_clone);
+                        log_on_error!(
+                            show_notification(
+                                &format!("Repair failed for {}!", repo_clone),
+                                "Please check BorgTUI's logs for more information.",
+                                EXTENDED_NOTIFICATION_DURATION,
+                            )
+                            .await,
+                            "Failed to show notification popup: {}"
+                        );
+                    }
+
+                    successful_clone.fetch_and(res, Ordering::SeqCst);
+                    repair_semaphore_clone.add_permits(1);
+                });
+            }
+            let _ = repair_semaphore
+                .acquire_many(profile.num_active_repositories() as u32)
+                .await?;
+            let title = if successful.load(Ordering::SeqCst) {
+                "Backup Repair Successful!"
+            } else {
+                "Backup Repair FAILED!"
+            };
+            let message = format!("Profile: {}", profile.name());
+            info!("{}", message);
+            show_notification(title, &message, EXTENDED_NOTIFICATION_DURATION).await?;
+            Ok(())
+        }
         Action::AddProfile { name } => {
             let profile = match Profile::open_profile(&name).await {
                 Ok(Some(profile)) => bail!("Error: {} already exists", profile),
