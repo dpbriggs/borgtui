@@ -418,8 +418,9 @@ impl BackupProvider for RusticProvider {
         }
 
         let passphrase = passphrase_from_repo(repo)?;
+        let repo_loc = repo.path();
         let backends = rustic_backend::BackendOptions::default()
-            .repository(repo.path())
+            .repository(&repo_loc)
             .to_backends()?;
 
         let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
@@ -448,6 +449,13 @@ impl BackupProvider for RusticProvider {
             )?;
             let file_policy = FilePolicy::Read; // TODO: I should probably be smarter here
 
+            tracing::info!(
+                "Mounting rustic repo: {} at {}",
+                repo_loc,
+                mountpoint.to_string_lossy(),
+            );
+            tracing::info!("BorgTUI will block until the filesystem is unmounted.");
+            tracing::info!("Make sure to run `umount {mountpoint:?}` to unmount the filesystem once you are done.");
             let fuse_mt = FuseMT::new(FuseFS::new(rustic_repo.to_indexed()?, vfs, file_policy), 1);
             fuse_mt::mount(fuse_mt, &mountpoint, &[])?;
             Ok(())
