@@ -1,6 +1,5 @@
 use std::{
     path::PathBuf,
-    process::Stdio,
     sync::{
         atomic::{AtomicBool, AtomicU64},
         Arc, RwLock,
@@ -8,9 +7,13 @@ use std::{
 };
 
 use async_trait::async_trait;
+use fuse_mt::FuseMT;
+use rustic_core::repofile::SnapshotFile;
+use rustic_core::vfs::{FilePolicy, IdenticalSnapshot, Latest, Vfs};
 use tokio::sync::Semaphore;
 
 use crate::{
+    backends::rustic_mount::FuseFS,
     borgtui::CommandResponse,
     profiles::{Passphrase, PruneOptions, Repository},
     types::{
@@ -272,7 +275,7 @@ impl BackupProvider for RusticProvider {
         if exclude_caches {
             filter_opts = filter_opts.exclude_if_present(["CACHEDIR.TAG".to_string()]);
         }
-        filter_opts = filter_opts.glob(
+        filter_opts = filter_opts.globs(
             exclude_patterns
                 .iter()
                 .map(|exclude_pattern| format!("!{exclude_pattern}"))
@@ -302,11 +305,11 @@ impl BackupProvider for RusticProvider {
                 repo_opts.no_cache = false;
             }
             let rustic_repo =
-                rustic_core::Repository::new_with_progress(&repo_opts, backends, pb.clone())?
+                rustic_core::Repository::new_with_progress(&repo_opts, &backends, pb.clone())?
                     .open()?
                     .to_indexed_ids()?;
             let backup_opts = rustic_core::BackupOptions::default().ignore_filter_opts(filter_opts);
-            let sources = rustic_core::PathList::from_strings(backup_paths);
+            let sources = rustic_core::PathList::from_iter(backup_paths);
             let mut snap = rustic_core::SnapshotOptions::default()
                 .add_tags("borgtui")?
                 .to_snapshot()?;
@@ -347,7 +350,7 @@ impl BackupProvider for RusticProvider {
             repo_opts = repo_opts.password(passphrase.inner())
         }
         let res = tokio::task::spawn_blocking(move || -> BorgResult<RepositoryArchives> {
-            let snapshots = rustic_core::Repository::new(&repo_opts, backends)?
+            let snapshots = rustic_core::Repository::new(&repo_opts, &backends)?
                 .open()?
                 .get_all_snapshots()?;
             let mut archives: Vec<Archive> = snapshots
@@ -390,7 +393,7 @@ impl BackupProvider for RusticProvider {
         let key_opts = rustic_core::KeyOptions::default();
         let config_opts = rustic_core::ConfigOptions::default();
         tracing::info!("Initializing rustic repo: {repo_loc}");
-        rustic_core::Repository::new(&repo_opts, backends)?.init(&key_opts, &config_opts)?;
+        rustic_core::Repository::new(&repo_opts, &backends)?.init(&key_opts, &config_opts)?;
         tracing::info!("Successfully initialized rustic repo: {repo_loc}");
         Ok(())
     }
@@ -399,7 +402,7 @@ impl BackupProvider for RusticProvider {
         &self,
         repo: &Repository,
         // TODO: support mounting particular snapshots
-        _given_repository_path: String,
+        given_repository_path: String,
         mountpoint: PathBuf,
     ) -> BorgResult<()> {
         if repo.disabled() {
@@ -413,26 +416,45 @@ impl BackupProvider for RusticProvider {
             );
             tokio::fs::create_dir_all(&mountpoint).await?;
         }
-        let mountpoint_s = mountpoint.to_string_lossy().to_string();
-        let repo_path = repo.path();
-        let passphrase = repo.get_passphrase()?;
-        tokio::process::Command::new("restic")
-            .env(
-                "RESTIC_PASSWORD",
-                passphrase.map(|p| p.inner()).unwrap_or_default(),
-            )
-            .arg("-r")
-            .arg(repo_path)
-            .arg("mount")
-            .arg(&mountpoint_s)
-            .stdout(Stdio::null())
-            .spawn()?;
-        tracing::info!("Successfully mounted at {mountpoint_s} in the background");
+
+        let passphrase = passphrase_from_repo(repo)?;
+        let backends = rustic_backend::BackendOptions::default()
+            .repository(repo.path())
+            .to_backends()?;
+
+        let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
+
+        let _join_handle = tokio::task::spawn_blocking(move || -> BorgResult<()> {
+            let rustic_repo = rustic_core::Repository::new(&repo_opts, &backends)?.open()?;
+
+            let (_repo_path, snapshot_label) =
+                given_repository_path.split_once("::").unwrap_or_default();
+
+            let sn_filter = |sn: &SnapshotFile| {
+                if snapshot_label.is_empty() {
+                    return true;
+                }
+                sn.label == snapshot_label
+            };
+
+            let vfs = Vfs::from_snapshots(
+                rustic_repo.get_matching_snapshots(sn_filter)?,
+                "[{hostname}]/[{label}]",
+                // TODO: Make this a borgtui constant (we use it in the archive name)
+                "%Y-%m-%d:%H:%M:%S",
+                Latest::AsLink,
+                IdenticalSnapshot::AsLink,
+            )?;
+            let file_policy = FilePolicy::Read; // TODO: I should probably be smarter here
+
+            let fuse_mt = FuseMT::new(FuseFS::new(rustic_repo.to_indexed()?, vfs, file_policy), 1);
+            fuse_mt::mount(fuse_mt, &mountpoint, &[])?;
+            Ok(())
+        });
         Ok(())
     }
 
     // TODO: Wire unmounting in with repositories
-    #[allow(unused)]
     async fn unmount(&self, mountpoint: PathBuf) -> BorgResult<()> {
         let exit = tokio::process::Command::new("umount")
             .arg(mountpoint)
@@ -463,12 +485,12 @@ impl BackupProvider for RusticProvider {
             // Actually open the connection
             let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
             let rustic_repo =
-                rustic_core::Repository::new_with_progress(&repo_opts, backends, pb)?.open()?;
+                rustic_core::Repository::new_with_progress(&repo_opts, &backends, pb)?.open()?;
             let keep_options = rustic_core::KeepOptions::default()
-                .keep_daily(prune_options.keep_daily.get())
-                .keep_weekly(prune_options.keep_weekly.get())
-                .keep_monthly(prune_options.keep_monthly.get())
-                .keep_yearly(prune_options.keep_yearly.get());
+                .keep_daily(prune_options.keep_daily.get() as i32)
+                .keep_weekly(prune_options.keep_weekly.get() as i32)
+                .keep_monthly(prune_options.keep_monthly.get() as i32)
+                .keep_yearly(prune_options.keep_yearly.get() as i32);
             let forget_ids = rustic_repo
                 .get_forget_snapshots(
                     &keep_options,
@@ -491,7 +513,7 @@ impl BackupProvider for RusticProvider {
             let prune_plan = rustic_repo.prune_plan(&prune_opts)?;
             // TODO: use send_info_blocking
             tracing::info!("Pruning {}...", repo_loc);
-            prune_plan.do_prune(&rustic_repo, &prune_opts)?;
+            rustic_repo.prune(&prune_opts, prune_plan)?;
             Ok::<(), anyhow::Error>(())
         });
         let repo_loc_clone = repo.path();
@@ -536,7 +558,7 @@ impl BackupProvider for RusticProvider {
             let pb = ProgressEmitter::check(progress_channel_clone, repo_loc.clone());
             let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
             let rustic_repo =
-                rustic_core::Repository::new_with_progress(&repo_opts, backends, pb)?.open()?;
+                rustic_core::Repository::new_with_progress(&repo_opts, &backends, pb)?.open()?;
             let check_options = rustic_core::CheckOptions::default();
             rustic_repo.check(check_options)
         })

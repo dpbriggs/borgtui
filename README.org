@@ -312,8 +312,6 @@ I can't do the latter so a refactor would need to occur somewhere between BorgTU
 
 A workaround is to start whatever keyring you use (search "wallet", open chromium, etc), remove the repo from the config-path, and then use `add-repo` to re-add it.
 
-
-
 ** Choice Excerpt from the Licence
 
 Please carefully read the [[file:LICENCE][LICENCE]] file before using this program.
@@ -346,3 +344,10 @@ SUCH DAMAGES.
 ** Note
 
 This work is not affiliated with my employer in any way.
+
+** Attribution
+
+*** Rustic
+
+While developing the rustic backend I reviewed the source code of https://github.com/rustic-rs/rustic/tree/main
+and in particular, the mounting/unmounting system.

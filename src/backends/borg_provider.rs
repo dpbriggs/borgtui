@@ -68,12 +68,10 @@ fn make_common_options(repo: &Repository) -> CommonOptions {
 
 /// TODO: tie this into the repo which was mounted!
 pub(crate) async fn hack_unmount(mountpoint: PathBuf) -> BorgResult<()> {
-    borg_async::umount(
-        mountpoint.to_string_lossy().to_string(),
-        &CommonOptions::default(),
-    )
-    .await
-    .map_err(|e| anyhow!("Failed to umount path {:?}: {}", mountpoint, e))
+    rustic_provider::RusticProvider {}
+        .unmount(mountpoint)
+        .await?;
+    Ok(())
 }
 
 async fn borg_check(
@@ -142,7 +140,7 @@ async fn borg_check(
     Ok(exit.success())
 }
 
-use super::backup_provider::BackupProvider;
+use super::{backup_provider::BackupProvider, rustic_provider};
 
 pub(crate) struct BorgProvider;
 
