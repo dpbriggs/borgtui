@@ -105,7 +105,7 @@ impl ProgressEmitter {
         );
         let msg = CommandResponse::CheckProgress(CheckProgress::new(self.repo_path.clone(), msg));
         if let Err(e) = self.sender.blocking_send(msg) {
-            tracing::error!("Failed to send inc message: {e}");
+            tracing::error!("Failed to send check message: {e}");
         }
     }
 
@@ -122,7 +122,7 @@ impl ProgressEmitter {
         );
         let msg = CommandResponse::Info(msg);
         if let Err(e) = self.sender.blocking_send(msg) {
-            tracing::error!("Failed to send inc message: {e}");
+            tracing::error!("Failed to send info message: {e}");
         }
     }
 
@@ -148,7 +148,7 @@ impl ProgressEmitter {
         let create_progress = BackupCreateProgress::new(self.repo_path.clone(), progress);
         let msg = CommandResponse::CreateProgress(create_progress);
         if let Err(e) = self.sender.blocking_send(msg) {
-            tracing::error!("Failed to send inc message: {e}");
+            tracing::error!("Failed to send create message: {e}");
         }
     }
 
@@ -424,6 +424,7 @@ impl BackupProvider for RusticProvider {
 
         let repo_opts = rustic_core::RepositoryOptions::default().password(passphrase.inner());
 
+        // TODO: do something with this join handle
         let _join_handle = tokio::task::spawn_blocking(move || -> BorgResult<()> {
             let rustic_repo = rustic_core::Repository::new(&repo_opts, &backends)?.open()?;
 
