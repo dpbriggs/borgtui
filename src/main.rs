@@ -9,7 +9,7 @@ use chrono::Duration;
 use notify::Watcher;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, Semaphore};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::FmtSubscriber;
 use types::{log_on_error, show_notification, DirectoryFinder, EXTENDED_NOTIFICATION_DURATION};
 use types::{BackupCreationProgress, CommandResponseSender};
@@ -442,6 +442,9 @@ async fn handle_action(
             // TODO: Refactor this logic to be cleaner, don't set the keyfile
             //       when calling Encryption::from_passphrase_loc
             let encryption = Encryption::from_passphrase_loc(passphrase_loc.clone())?;
+            if let Encryption::None = encryption {
+                warn!("Initializing Repository without encryption.");
+            }
             let passphrase = passphrase_loc.get_passphrase()?;
             let mut new_repo = Repository::new(location.clone(), encryption.clone(), kind, rsh);
             new_repo.set_passphrase(encryption, passphrase)?;
