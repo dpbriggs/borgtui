@@ -92,7 +92,7 @@ borgtui list
 
 *** Verifying Backups (Check)
 
-You can verify the integrity of backups by using `borgtui check`. This is currently only supported in CLI mode.
+You can verify the integrity of backups by using =$ borgtui check=. This is currently only supported in CLI mode.
 
 #+begin_src bash
 borgtui check
@@ -248,7 +248,7 @@ Simply issue =borgtui create= with the scheduling system of your choosing (cron,
 ** Upgrading BorgTUI Versions
 *** Upgrading to 0.5.0 - Repository Format Change
 
-In `0.5.0` the repository format has changed to better isolate repository options. It went from:
+In =0.5.0= the repository format has changed to better isolate repository options. It went from:
 
 #+begin_src json
   "repos": [
@@ -280,13 +280,13 @@ To repository options living under a config enum:
 #+end_src
 
 BorgTUI will transparently load the "V1" config and transform it into the latest config file format on save.
-To update to the latest config format, use `$ borgtui update-config` or open BorgTUI and hit "s" to "save profile".
+To update to the latest config format, use =$ borgtui update-config= or open BorgTUI and hit "s" to "save profile".
 
 ** Appendix
 
 *** **Experimental** Rustic Backend Support
 
-BorgTUI supports [[https://rustic.cli.rs/][Rustic]] as a native backup backend. The configuration is nearly identical except for a repository `kind` in configs:
+BorgTUI supports [[https://rustic.cli.rs/][Rustic]] as a native backup backend. The configuration is nearly identical except for a repository =kind= in configs:
 
 #+begin_src json
 ...
@@ -300,10 +300,8 @@ BorgTUI supports [[https://rustic.cli.rs/][Rustic]] as a native backup backend. 
 ...
 #+end_src
 
-To initialize a rustic repo follow the usual init process but with `--kind rustic` passed in.
-Same idea for adding repos -- just do `borgtui add-repo --kind rustic <..>`.
-
-A wrinkle is that `restic` must be install for mounting to work (as it's not yet [[https://github.com/rustic-rs/rustic/issues/971][supported in rustic]]).
+To initialize a rustic repo follow the usual init process but with =--kind rustic= passed in.
+Same idea for adding repos -- just do =borgtui add-repo --kind rustic <..>=.
 
 **WARNING**: Rustic support is not production grade yet. It's intended to provide N+1 redundancy in terms of backup providers. Please use it in conjunction with other backup providers (borg, whatever you use, etc).
 
@@ -347,7 +345,7 @@ I can't do the latter so a refactor would need to occur somewhere between BorgTU
 
 *** If you attempt to init or add a repository with a faulty (or not-running) keyring the profile saves but the password doesn't
 
-A workaround is to start whatever keyring you use (search "wallet", open chromium, etc), remove the repo from the config-path, and then use `add-repo` to re-add it.
+A workaround is to start whatever keyring you use (search "wallet", open chromium, etc), remove the repo from the config-path, and then use =add-repo= to re-add it.
 
 ** Choice Excerpt from the Licence
 
