@@ -153,6 +153,8 @@ pub(crate) enum Action {
     },
     /// List the repositories associated with the profile.
     ListRepos,
+    /// Update the configuration file format. No-op if you're on the latest config version.
+    UpdateConfig,
     /// Set the password for a repository. By default it will read
     /// BORG_PASSPHRASE from the environment unless --keyfile is specified.
     SetPassword {

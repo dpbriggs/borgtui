@@ -21,6 +21,7 @@ use crate::{
         BackupCreationProgress, BorgResult, CheckProgress, CommandResponseSender, PrettyBytes,
         RepositoryArchives,
     },
+    RepositoryOptions,
 };
 
 use super::backup_provider::BackupProvider;
@@ -377,7 +378,7 @@ impl BackupProvider for RusticProvider {
         &self,
         repo_loc: String,
         passphrase: Option<Passphrase>,
-        _rsh: Option<String>,
+        _config: RepositoryOptions,
     ) -> BorgResult<()> {
         let passphrase = match passphrase {
             Some(passphrase) => passphrase,

@@ -136,7 +136,7 @@ const fn default_repository_kind() -> RepositoryKind {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub(crate) struct Repository {
+pub(crate) struct RepositoryV1 {
     pub(crate) path: String,
     /// SSH command to use when connecting
     #[serde(default)]
@@ -146,6 +146,44 @@ pub(crate) struct Repository {
     disabled: bool,
     #[serde(default = "default_repository_kind")]
     kind: RepositoryKind,
+}
+
+trait ToLatestRepository {
+    fn to_latest(&self) -> Repository;
+}
+
+impl ToLatestRepository for RepositoryV1 {
+    fn to_latest(&self) -> Repository {
+        let config = match self.kind {
+            RepositoryKind::Borg => RepositoryOptions::BorgV1(BorgV1Options {
+                rsh: self.rsh.clone(),
+            }),
+            RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
+        };
+        Repository {
+            path: self.path.clone(),
+            encryption: self.encryption.clone(),
+            disabled: self.disabled,
+            config,
+            lock: Default::default(),
+        }
+    }
+}
+
+impl ToLatestRepository for Repository {
+    fn to_latest(&self) -> Repository {
+        self.clone()
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub(crate) struct Repository {
+    pub(crate) path: String,
+    /// SSH command to use when connecting
+    encryption: Encryption,
+    #[serde(default)]
+    disabled: bool,
+    config: RepositoryOptions,
     #[serde(skip)]
     pub(crate) lock: Arc<Mutex<()>>,
 }
@@ -165,18 +203,47 @@ fn get_keyring_entry(repo_path: &str) -> BorgResult<Entry> {
     })
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub(crate) struct BorgV1Options {
+    pub(crate) rsh: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+pub(crate) struct RusticOptions {}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub(crate) enum RepositoryOptions {
+    BorgV1(BorgV1Options),
+    Rustic(RusticOptions),
+}
+
+impl RepositoryOptions {
+    // TODO: Does this API make sense?
+    pub(crate) fn borg_options(&self) -> BorgResult<BorgV1Options> {
+        match self {
+            RepositoryOptions::BorgV1(options) => Ok(options.clone()),
+            _ => Err(anyhow::anyhow!(
+                "borg_options called on non-borg repository"
+            )),
+        }
+    }
+
+    pub(crate) fn rustic_options(&self) -> BorgResult<RusticOptions> {
+        match self {
+            RepositoryOptions::Rustic(options) => Ok(options.clone()),
+            _ => Err(anyhow::anyhow!(
+                "rustic_options called on non-rustic repository"
+            )),
+        }
+    }
+}
+
 impl Repository {
-    pub(crate) fn new(
-        path: String,
-        encryption: Encryption,
-        kind: RepositoryKind,
-        rsh: Option<String>,
-    ) -> Self {
+    pub(crate) fn new(path: String, encryption: Encryption, config: RepositoryOptions) -> Self {
         Self {
             path,
             encryption,
-            kind,
-            rsh,
+            config,
             disabled: false,
             lock: Default::default(),
         }
@@ -241,8 +308,13 @@ impl Repository {
         &self.path
     }
 
-    pub(crate) fn rsh(&self) -> Option<String> {
-        self.rsh.clone()
+    pub(crate) fn borg_options(&self) -> BorgResult<BorgV1Options> {
+        self.config.borg_options()
+    }
+
+    #[allow(unused)]
+    pub(crate) fn rustic_options(&self) -> BorgResult<RusticOptions> {
+        self.config.rustic_options()
     }
 
     pub(crate) async fn list_archives(&self) -> BorgResult<RepositoryArchives> {
@@ -251,7 +323,7 @@ impl Repository {
 
     pub(crate) async fn init(&self) -> BorgResult<()> {
         self.backup_provider()
-            .init_repo(self.path(), self.get_passphrase()?, self.rsh())
+            .init_repo(self.path(), self.get_passphrase()?, self.config.clone())
             .await?;
         Ok(())
     }
@@ -291,16 +363,16 @@ impl Repository {
     }
 
     pub(crate) fn backup_provider(&self) -> Box<dyn BackupProvider> {
-        match self.kind {
-            RepositoryKind::Borg => Box::new(BorgProvider {}),
-            RepositoryKind::Rustic => Box::new(RusticProvider {}),
+        match self.config {
+            RepositoryOptions::BorgV1(_) => Box::new(BorgProvider {}),
+            RepositoryOptions::Rustic(_) => Box::new(RusticProvider {}),
         }
     }
 
     pub(crate) fn repo_kind_name(&self) -> &'static str {
-        match self.kind {
-            RepositoryKind::Borg => "Borg",
-            RepositoryKind::Rustic => "Rustic",
+        match self.config {
+            RepositoryOptions::BorgV1(_) => "Borg",
+            RepositoryOptions::Rustic(_) => "Rustic",
         }
     }
 }
@@ -340,6 +412,31 @@ const fn default_exclude_caches() -> bool {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+enum RepositoryVersion {
+    // Order matters!
+    V2(Repository),
+    V1(RepositoryV1),
+}
+
+impl RepositoryVersion {
+    fn deserialize<'de, D>(deserializer: D) -> Result<Vec<Repository>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let repos = Vec::<RepositoryVersion>::deserialize(deserializer)?;
+        let mut result = Vec::new();
+        for repo in repos {
+            match repo {
+                RepositoryVersion::V1(repo) => result.push(repo.to_latest()),
+                RepositoryVersion::V2(repo) => result.push(repo.to_latest()),
+            }
+        }
+        Ok(result)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub(crate) struct Profile {
     name: String,
     backup_paths: Vec<PathBuf>,
@@ -351,7 +448,7 @@ pub(crate) struct Profile {
     prune_options: PruneOptions,
     #[serde(default = "default_action_timeout_seconds")]
     action_timeout_seconds: u64,
-    // TODO: A proper field for this
+    #[serde(deserialize_with = "RepositoryVersion::deserialize")]
     repos: Vec<Repository>,
 }
 
@@ -659,5 +756,138 @@ impl Profile {
 
     pub(crate) fn remove_backup_path(&mut self, path: &Path) {
         self.backup_paths.retain(|p| p != path);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const GOLDEN_V1_CONFIG: &str = r#"
+{
+  "name": "dev",
+  "backup_paths": [
+    "/home/david/programming/collatz",
+    "/home/david/programming/advent-of-code-2020",
+    "/home/david/programming/borgtui",
+    "/home/david/Pictures"
+  ],
+  "exclude_patterns": [
+    "**/tmp*"
+  ],
+  "exclude_caches": true,
+  "prune_options": {
+    "keep_daily": 2,
+    "keep_weekly": 1,
+    "keep_monthly": 1,
+    "keep_yearly": 1
+  },
+  "action_timeout_seconds": 30,
+  "repos": [
+    {
+      "path": "/home/david/borg-test-repo0",
+      "rsh": "foobar",
+      "encryption": "None",
+      "disabled": false,
+      "kind": "Borg"
+    },
+    {
+      "path": "/home/david/restic-test-repo",
+      "rsh": null,
+      "encryption": {
+        "Keyfile": "/home/david/.borg-passphrase"
+      },
+      "disabled": false,
+      "kind": "Rustic"
+    }
+  ]
+}
+"#;
+
+    const GOLDEN_V2_CONFIG: &str = r#"
+{
+  "name": "dev",
+  "backup_paths": [
+    "/home/david/programming/collatz",
+    "/home/david/programming/advent-of-code-2020",
+    "/home/david/programming/borgtui",
+    "/home/david/Pictures"
+  ],
+  "exclude_patterns": [
+    "**/tmp*"
+  ],
+  "exclude_caches": true,
+  "prune_options": {
+    "keep_daily": 2,
+    "keep_weekly": 1,
+    "keep_monthly": 1,
+    "keep_yearly": 1
+  },
+  "action_timeout_seconds": 30,
+  "repos": [
+    {
+      "path": "/home/david/borg-test-repo0",
+      "encryption": "None",
+      "disabled": false,
+      "config": {
+        "BorgV1": {
+          "rsh": "foobar"
+        }
+      }
+    },
+    {
+      "path": "/home/david/restic-test-repo",
+      "encryption": {
+        "Keyfile": "/home/david/.borg-passphrase"
+      },
+      "disabled": false,
+      "config": {
+        "Rustic": {}
+      }
+    }
+  ]
+}
+"#;
+
+    #[test]
+    fn can_load_old_config() {
+        let profile: Profile = serde_json::from_str(GOLDEN_V1_CONFIG).unwrap();
+        assert_eq!(
+            profile.repositories()[0]
+                .borg_options()
+                .expect("should have borg options")
+                .rsh,
+            Some("foobar".to_string())
+        );
+        assert!(profile.repos[1].borg_options().is_err());
+        assert!(profile.repos[1].rustic_options().is_ok());
+    }
+
+    #[test]
+    fn can_load_new_config() {
+        let profile: Profile = serde_json::from_str(GOLDEN_V2_CONFIG).unwrap();
+        assert_eq!(
+            profile.repositories()[0]
+                .borg_options()
+                .expect("should have borg options")
+                .rsh,
+            Some("foobar".to_string())
+        );
+        assert!(profile.repositories()[1].borg_options().is_err());
+        assert!(profile.repositories()[1].rustic_options().is_ok());
+    }
+
+    #[test]
+    fn v1_to_v2_config_yields_same_config() {
+        let profile_v1: Profile = serde_json::from_str(GOLDEN_V1_CONFIG).unwrap();
+        let profile_v2: Profile = serde_json::from_str(GOLDEN_V2_CONFIG).unwrap();
+        profile_v1
+            .repositories()
+            .iter()
+            .zip(profile_v2.repositories())
+            .for_each(|(v1, v2)| {
+                assert_eq!(v1.path, v2.path);
+                assert_eq!(v1.disabled, v2.disabled);
+                assert_eq!(v1.config, v2.config);
+            });
     }
 }

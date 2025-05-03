@@ -4,7 +4,7 @@ use std::{path::PathBuf, sync::Arc};
 use async_trait::async_trait;
 use tokio::sync::Semaphore;
 
-use crate::profiles::{Passphrase, PruneOptions, Repository};
+use crate::profiles::{Passphrase, PruneOptions, Repository, RepositoryOptions};
 use crate::types::{BorgResult, CommandResponseSender, RepositoryArchives};
 
 #[async_trait]
@@ -25,7 +25,7 @@ pub(crate) trait BackupProvider: Send {
         &self,
         repo_loc: String,
         passphrase: Option<Passphrase>,
-        rsh: Option<String>,
+        config: RepositoryOptions,
     ) -> BorgResult<()>;
     async fn mount(
         &self,

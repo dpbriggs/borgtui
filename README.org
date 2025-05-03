@@ -245,6 +245,43 @@ journalctl --user -u borgtui-create-default
 
 Simply issue =borgtui create= with the scheduling system of your choosing (cron, etc).
 
+** Upgrading BorgTUI Versions
+*** Upgrading to 0.5.0 - Repository Format Change
+
+In `0.5.0` the repository format has changed to better isolate repository options. It went from:
+
+#+begin_src json
+  "repos": [
+    {
+      "path": "/home/david/borg-test-repo0",
+      "rsh": "foobar",
+      "encryption": "None",
+      "disabled": false,
+      "kind": "Borg"
+    },
+  ]
+#+end_src
+
+To repository options living under a config enum:
+
+#+begin_src json
+  "repos": [
+    {
+      "path": "/home/david/borg-test-repo0",
+      "encryption": "None",
+      "disabled": false,
+      "config": {
+        "BorgV1": {
+          "rsh": "foobar"
+        }
+      }
+    },
+  ]
+#+end_src
+
+BorgTUI will transparently load the "V1" config and transform it into the latest config file format on save.
+To update to the latest config format, use `$ borgtui update-config` or open BorgTUI and hit "s" to "save profile".
+
 ** Appendix
 
 *** **Experimental** Rustic Backend Support

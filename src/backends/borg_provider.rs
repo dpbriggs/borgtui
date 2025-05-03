@@ -14,7 +14,7 @@ use tracing::info;
 
 use crate::{
     borgtui::CommandResponse,
-    profiles::{Passphrase, Repository},
+    profiles::{Passphrase, Repository, RepositoryOptions},
     types::{
         send_check_complete, send_check_progress, send_error, send_info, take_repo_lock, Archive,
         BackupCreateProgress, BackupCreationProgress, BorgResult, CommandResponseSender,
@@ -59,11 +59,11 @@ impl From<borg_async::CreateProgress> for BackupCreationProgress {
     }
 }
 
-fn make_common_options(repo: &Repository) -> CommonOptions {
-    CommonOptions {
-        rsh: repo.rsh(),
+fn make_common_options(repo: &Repository) -> BorgResult<CommonOptions> {
+    Ok(CommonOptions {
+        rsh: repo.borg_options()?.rsh.clone(),
         ..Default::default()
-    }
+    })
 }
 
 /// TODO: tie this into the repo which was mounted!
@@ -81,7 +81,7 @@ async fn borg_check(
     repair: bool,
 ) -> BorgResult<bool> {
     let repo_path = repo.path();
-    let rsh = repo.rsh();
+    let rsh = repo.borg_options()?.rsh.clone();
     let mut extra_args = vec![];
     if repair {
         extra_args.push("--repair");
@@ -183,7 +183,7 @@ impl BackupProvider for BorgProvider {
         let (create_progress_send, mut create_progress_recv) =
             tokio::sync::mpsc::channel::<borg_async::CreateProgress>(200);
 
-        let common_options = make_common_options(&repo);
+        let common_options = make_common_options(&repo)?;
 
         let repo_name_clone = repo.path();
         let progress_channel_task = progress_channel.clone();
@@ -243,7 +243,7 @@ impl BackupProvider for BorgProvider {
             repository: repo.path(),
             passphrase: repo.get_passphrase()?.map(|p| p.inner()),
         };
-        let res = borg_async::list(&list_options, &make_common_options(repo))
+        let res = borg_async::list(&list_options, &make_common_options(repo)?)
             .await
             .map_err(|e| anyhow!("Failed to list archives in repo {}: {:?}", repo.path(), e))?;
         Ok(res.into())
@@ -252,7 +252,7 @@ impl BackupProvider for BorgProvider {
         &self,
         repo_loc: String,
         passphrase: Option<Passphrase>,
-        rsh: Option<String>,
+        config: RepositoryOptions,
     ) -> BorgResult<()> {
         let encryption_mode = match passphrase {
             Some(passphrase) => EncryptionMode::Repokey(passphrase.inner()),
@@ -262,7 +262,7 @@ impl BackupProvider for BorgProvider {
         borg_async::init(
             &init_options,
             &CommonOptions {
-                rsh,
+                rsh: config.borg_options()?.rsh.clone(),
                 ..Default::default()
             },
         )
@@ -304,7 +304,7 @@ impl BackupProvider for BorgProvider {
         let mut mount_options =
             MountOptions::new(mount_source, mountpoint.to_string_lossy().to_string());
         mount_options.passphrase = repo.get_passphrase()?.map(|p| p.inner());
-        borg_async::mount(&mount_options, &make_common_options(repo))
+        borg_async::mount(&mount_options, &make_common_options(repo)?)
             .await
             .map_err(|e| anyhow!("Failed to mount repo {}: {}", repo.path(), e))?;
         info!(
@@ -338,7 +338,7 @@ impl BackupProvider for BorgProvider {
         compact_options.keep_weekly = Some(prune_options.keep_weekly);
         compact_options.keep_monthly = Some(prune_options.keep_monthly);
         compact_options.keep_yearly = Some(prune_options.keep_yearly);
-        borg_async::prune(&compact_options, &make_common_options(repo))
+        borg_async::prune(&compact_options, &make_common_options(repo)?)
             .await
             .map_err(|e| anyhow!("Failed to prune repo {}: {:?}", repo.path(), e))?;
         Ok(())
@@ -352,7 +352,7 @@ impl BackupProvider for BorgProvider {
             repository: repo.path(),
         };
         take_repo_lock!(progress_channel, repo);
-        borg_async::compact(&compact_options, &make_common_options(repo))
+        borg_async::compact(&compact_options, &make_common_options(repo)?)
             .await
             .map_err(|e| anyhow!("Failed to compact repo {}: {:?}", repo.path(), e))?;
         Ok(())

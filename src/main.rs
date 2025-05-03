@@ -7,6 +7,7 @@ use anyhow::{anyhow, bail, Context};
 use backends::borg_provider::hack_unmount;
 use chrono::Duration;
 use notify::Watcher;
+use profiles::{BorgV1Options, RepositoryKind, RepositoryOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info, warn};
@@ -446,7 +447,12 @@ async fn handle_action(
                 warn!("Initializing Repository without encryption.");
             }
             let passphrase = passphrase_loc.get_passphrase()?;
-            let mut new_repo = Repository::new(location.clone(), encryption.clone(), kind, rsh);
+            let config = match kind {
+                RepositoryKind::Borg => RepositoryOptions::BorgV1(BorgV1Options { rsh }),
+                RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
+            };
+
+            let mut new_repo = Repository::new(location.clone(), encryption.clone(), config);
             new_repo.set_passphrase(encryption, passphrase)?;
             new_repo.init().await?;
             profile.add_repository(new_repo);
@@ -492,11 +498,14 @@ async fn handle_action(
                     profile
                 );
             }
+            let config = match kind {
+                RepositoryKind::Borg => RepositoryOptions::BorgV1(BorgV1Options { rsh }),
+                RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
+            };
             let repo = Repository::new(
                 repository.clone(),
                 Encryption::from_passphrase_loc(passphrase_loc)?,
-                kind,
-                rsh,
+                config,
             );
             profile.add_repository(repo);
             profile.save_profile().await?;
@@ -550,6 +559,12 @@ async fn handle_action(
                 }
                 println!("{}{}", &repo.path, extra_info);
             }
+            Ok(())
+        }
+        Action::UpdateConfig => {
+            let profile = Profile::open_or_create(&profile_name).await?;
+            profile.save_profile().await?;
+            info!("Updated config for {}", profile);
             Ok(())
         }
         Action::SetPassword {
