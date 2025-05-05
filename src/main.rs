@@ -7,7 +7,7 @@ use anyhow::{anyhow, bail, Context};
 use backends::borg_provider::hack_unmount;
 use chrono::Duration;
 use notify::Watcher;
-use profiles::{BorgV1Options, RepositoryKind, RepositoryOptions};
+use profiles::{BorgV1OptionsBuilder, RepositoryKind, RepositoryOptions};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, Semaphore};
 use tracing::{error, info, warn};
@@ -448,7 +448,9 @@ async fn handle_action(
             }
             let passphrase = passphrase_loc.get_passphrase()?;
             let config = match kind {
-                RepositoryKind::Borg => RepositoryOptions::BorgV1(BorgV1Options { rsh }),
+                RepositoryKind::Borg => {
+                    RepositoryOptions::BorgV1(BorgV1OptionsBuilder::new().rsh(rsh).build())
+                }
                 RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
             };
 
@@ -499,7 +501,9 @@ async fn handle_action(
                 );
             }
             let config = match kind {
-                RepositoryKind::Borg => RepositoryOptions::BorgV1(BorgV1Options { rsh }),
+                RepositoryKind::Borg => {
+                    RepositoryOptions::BorgV1(BorgV1OptionsBuilder::new().rsh(rsh).build())
+                }
                 RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
             };
             let repo = Repository::new(

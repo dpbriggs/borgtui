@@ -9,8 +9,8 @@ edition = "2021"
 anyhow = "1.0.70"
 async-recursion = "1.0.4"
 async-trait = "0.1.81"
-#borgbackup = { version = "0.9.0", features = ["tokio"] }
-borgbackup = { git = "https://github.com/dpbriggs/borgbackup-fork.git", rev = "d5c8ff0", features = ["tokio"]}
+borgbackup = { version = "0.9.1", features = ["tokio"] }
+#borgbackup = { git = "https://github.com/dpbriggs/borgbackup-fork.git", rev = "d5c8ff0", features = ["tokio"]}
 chrono = "0.4.24"
 clap = { version = "4.2.0", features = ["derive", "env"] }
 clap_complete = "4.3.0"

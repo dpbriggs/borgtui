@@ -60,8 +60,10 @@ impl From<borg_async::CreateProgress> for BackupCreationProgress {
 }
 
 fn make_common_options(repo: &Repository) -> BorgResult<CommonOptions> {
+    let borg_options = repo.borg_options()?;
     Ok(CommonOptions {
-        rsh: repo.borg_options()?.rsh.clone(),
+        rsh: borg_options.rsh.clone(),
+        remote_path: borg_options.remote_path.clone(),
         ..Default::default()
     })
 }

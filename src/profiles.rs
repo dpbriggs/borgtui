@@ -155,9 +155,9 @@ trait ToLatestRepository {
 impl ToLatestRepository for RepositoryV1 {
     fn to_latest(&self) -> Repository {
         let config = match self.kind {
-            RepositoryKind::Borg => RepositoryOptions::BorgV1(BorgV1Options {
-                rsh: self.rsh.clone(),
-            }),
+            RepositoryKind::Borg => {
+                RepositoryOptions::BorgV1(BorgV1OptionsBuilder::new().rsh(self.rsh.clone()).build())
+            }
             RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
         };
         Repository {
@@ -206,6 +206,39 @@ fn get_keyring_entry(repo_path: &str) -> BorgResult<Entry> {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub(crate) struct BorgV1Options {
     pub(crate) rsh: Option<String>,
+    pub(crate) remote_path: Option<String>,
+}
+
+pub(crate) struct BorgV1OptionsBuilder {
+    rsh: Option<String>,
+    remote_path: Option<String>,
+}
+
+impl BorgV1OptionsBuilder {
+    pub(crate) fn new() -> Self {
+        Self {
+            rsh: None,
+            remote_path: None,
+        }
+    }
+
+    pub(crate) fn rsh(mut self, rsh: Option<String>) -> Self {
+        self.rsh = rsh;
+        self
+    }
+
+    #[allow(unused)]
+    pub(crate) fn remote_path(mut self, remote_path: Option<String>) -> Self {
+        self.remote_path = remote_path;
+        self
+    }
+
+    pub(crate) fn build(self) -> BorgV1Options {
+        BorgV1Options {
+            rsh: self.rsh,
+            remote_path: self.remote_path,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
