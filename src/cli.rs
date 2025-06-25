@@ -153,6 +153,11 @@ pub(crate) enum Action {
     },
     /// List the repositories associated with the profile.
     ListRepos,
+    /// Describe a repository
+    LsRepo {
+        /// The repository path of the repo we want to describe
+        repository: Option<String>,
+    },
     /// Update the configuration file format. No-op if you're on the latest config version.
     UpdateConfig,
     /// Set the password for a repository. By default it will read

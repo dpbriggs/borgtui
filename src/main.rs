@@ -427,6 +427,16 @@ WantedBy=default.target
     }
 }
 
+fn print_repo_list(repos: &[Repository]) {
+    for repo in repos {
+        let mut extra_info = "";
+        if repo.disabled() {
+            extra_info = " (DISABLED)";
+        }
+        println!("- {}{}", &repo.path, extra_info);
+    }
+}
+
 async fn handle_action(
     action: Action,
     profile_name: Option<String>,
@@ -556,12 +566,49 @@ async fn handle_action(
         }
         Action::ListRepos => {
             let profile = Profile::open_or_create(&profile_name).await?;
-            for repo in profile.repositories() {
-                let mut extra_info = "";
-                if repo.disabled() {
-                    extra_info = " (DISABLED)";
+            print_repo_list(profile.repositories());
+            Ok(())
+        }
+        Action::LsRepo { repository } => {
+            let profile = Profile::open_or_create(&profile_name).await?;
+            let repos = profile.repositories();
+
+            if let Some(repository) = repository {
+                let prefix_matches: Vec<_> = repos
+                    .iter()
+                    .filter(|r| r.path.starts_with(&repository))
+                    .collect();
+
+                match prefix_matches.len() {
+                    // Exact match or close enough
+                    1 => {
+                        let repo = prefix_matches[0];
+                        let repo_info = serde_json::to_string_pretty(repo)?;
+                        println!("{}", repo_info);
+                    }
+                    // No dice
+                    0 => {
+                        println!("Repository '{}' not found.", repository);
+                        println!("Did you mean one of these?");
+                        print_repo_list(repos);
+                    }
+                    // More than one repo matched, ambiguous
+                    _ => {
+                        println!(
+                            "Repository '{}' is ambiguous. Did you mean one of these?",
+                            repository
+                        );
+                        print_repo_list(
+                            prefix_matches
+                                .into_iter()
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .as_slice(),
+                        );
+                    }
                 }
-                println!("{}{}", &repo.path, extra_info);
+            } else {
+                print_repo_list(repos);
             }
             Ok(())
         }
