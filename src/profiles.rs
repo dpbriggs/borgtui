@@ -934,6 +934,65 @@ mod tests {
         assert!(profile.repositories()[1].rustic_options().is_ok());
     }
 
+    const GOLDEN_V2_CONFIG_WITH_RESTIC: &str = r#"
+{
+  "name": "dev",
+  "backup_paths": [
+    "/home/david/programming/collatz",
+    "/home/david/programming/advent-of-code-2020",
+    "/home/david/programming/borgtui",
+    "/home/david/Pictures"
+  ],
+  "exclude_patterns": [
+    "**/tmp*"
+  ],
+  "exclude_caches": true,
+  "prune_options": {
+    "keep_daily": 2,
+    "keep_weekly": 1,
+    "keep_monthly": 1,
+    "keep_yearly": 1
+  },
+  "action_timeout_seconds": 30,
+  "repos": [
+    {
+      "path": "/home/david/borg-test-repo0",
+      "encryption": "None",
+      "disabled": false,
+      "config": {
+        "BorgV1": {
+          "rsh": "foobar"
+        }
+      }
+    },
+    {
+      "path": "/home/david/restic-test-repo",
+      "encryption": {
+        "Keyfile": "/home/david/.borg-passphrase"
+      },
+      "disabled": false,
+      "config": {
+        "Restic": {}
+      }
+    }
+  ]
+}
+"#;
+
+    #[test]
+    fn can_load_new_config_with_restic() {
+        let profile: Profile = serde_json::from_str(GOLDEN_V2_CONFIG_WITH_RESTIC).unwrap();
+        assert_eq!(
+            profile.repositories()[0]
+                .borg_options()
+                .expect("should have borg options")
+                .rsh,
+            Some("foobar".to_string())
+        );
+        assert!(profile.repositories()[1].borg_options().is_err());
+        assert!(profile.repositories()[1].restic_options().is_ok());
+    }
+
     #[test]
     fn v1_to_v2_config_yields_same_config() {
         let profile_v1: Profile = serde_json::from_str(GOLDEN_V1_CONFIG).unwrap();
