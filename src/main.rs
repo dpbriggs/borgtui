@@ -462,6 +462,7 @@ async fn handle_action(
                     RepositoryOptions::BorgV1(BorgV1OptionsBuilder::new().rsh(rsh).build())
                 }
                 RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
+                RepositoryKind::Restic => RepositoryOptions::Restic(Default::default()),
             };
 
             let mut new_repo = Repository::new(location.clone(), encryption.clone(), config);
@@ -515,6 +516,7 @@ async fn handle_action(
                     RepositoryOptions::BorgV1(BorgV1OptionsBuilder::new().rsh(rsh).build())
                 }
                 RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
+                RepositoryKind::Restic => RepositoryOptions::Restic(Default::default()),
             };
             let repo = Repository::new(
                 repository.clone(),

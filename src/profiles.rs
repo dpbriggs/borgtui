@@ -11,7 +11,7 @@ use std::{
 use crate::{
     backends::{
         backup_provider::BackupProvider, borg_provider::BorgProvider,
-        rustic_provider::RusticProvider,
+        restic_provider::ResticProvider, rustic_provider::RusticProvider,
     },
     cli::PassphraseSource,
     types::{
@@ -105,6 +105,7 @@ impl Encryption {
 pub(crate) enum RepositoryKind {
     Borg,
     Rustic,
+    Restic,
 }
 
 impl std::fmt::Display for RepositoryKind {
@@ -112,6 +113,7 @@ impl std::fmt::Display for RepositoryKind {
         let sort = match self {
             RepositoryKind::Borg => "borg".to_string(),
             RepositoryKind::Rustic => "rustic".to_string(),
+            RepositoryKind::Restic => "restic".to_string(),
         };
         write!(f, "{sort}")
     }
@@ -126,6 +128,8 @@ impl FromStr for RepositoryKind {
             "Borg" => Ok(RepositoryKind::Borg),
             "rustic" => Ok(RepositoryKind::Rustic),
             "Rustic" => Ok(RepositoryKind::Rustic),
+            "restic" => Ok(RepositoryKind::Restic),
+            "Restic" => Ok(RepositoryKind::Restic),
             otherwise => Err(anyhow::anyhow!("Unknown repository kind: {otherwise}")),
         }
     }
@@ -159,6 +163,7 @@ impl ToLatestRepository for RepositoryV1 {
                 RepositoryOptions::BorgV1(BorgV1OptionsBuilder::new().rsh(self.rsh.clone()).build())
             }
             RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
+            RepositoryKind::Restic => RepositoryOptions::Restic(Default::default()),
         };
         Repository {
             path: self.path.clone(),
@@ -244,10 +249,14 @@ impl BorgV1OptionsBuilder {
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub(crate) struct RusticOptions {}
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+pub(crate) struct ResticOptions {}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub(crate) enum RepositoryOptions {
     BorgV1(BorgV1Options),
     Rustic(RusticOptions),
+    Restic(ResticOptions),
 }
 
 impl RepositoryOptions {
@@ -266,6 +275,15 @@ impl RepositoryOptions {
             RepositoryOptions::Rustic(options) => Ok(options.clone()),
             _ => Err(anyhow::anyhow!(
                 "rustic_options called on non-rustic repository"
+            )),
+        }
+    }
+
+    pub(crate) fn restic_options(&self) -> BorgResult<ResticOptions> {
+        match self {
+            RepositoryOptions::Restic(options) => Ok(options.clone()),
+            _ => Err(anyhow::anyhow!(
+                "restic_options called on non-restic repository"
             )),
         }
     }
@@ -350,6 +368,11 @@ impl Repository {
         self.config.rustic_options()
     }
 
+    #[allow(unused)]
+    pub(crate) fn restic_options(&self) -> BorgResult<ResticOptions> {
+        self.config.restic_options()
+    }
+
     pub(crate) async fn list_archives(&self) -> BorgResult<RepositoryArchives> {
         self.backup_provider().list_archives(self).await
     }
@@ -399,6 +422,7 @@ impl Repository {
         match self.config {
             RepositoryOptions::BorgV1(_) => Box::new(BorgProvider {}),
             RepositoryOptions::Rustic(_) => Box::new(RusticProvider {}),
+            RepositoryOptions::Restic(_) => Box::new(ResticProvider {}),
         }
     }
 
@@ -406,6 +430,7 @@ impl Repository {
         match self.config {
             RepositoryOptions::BorgV1(_) => "Borg",
             RepositoryOptions::Rustic(_) => "Rustic",
+            RepositoryOptions::Restic(_) => "Restic",
         }
     }
 }
