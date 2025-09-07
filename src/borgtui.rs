@@ -1483,10 +1483,9 @@ impl BorgTui {
 
     fn draw_check_list(&self, frame: &mut Frame, area: Rect) {
         // TODO: Refactor this into a shared function
-        let check_constraints = std::iter::repeat(Constraint::Percentage(
+        let check_constraints = std::iter::repeat_n(Constraint::Percentage(
             100 / self.profile.num_repos() as u16,
-        ))
-        .take(self.profile.num_repos())
+        ), self.profile.num_repos())
         .collect::<Vec<_>>();
         let areas = Layout::default()
             .direction(Direction::Vertical)
@@ -1550,10 +1549,9 @@ impl BorgTui {
 
     fn draw_backup_list(&self, frame: &mut Frame, area: Rect) {
         // TODO: Handle running out of vertical space!
-        let backup_constraints = std::iter::repeat(Constraint::Percentage(
+        let backup_constraints = std::iter::repeat_n(Constraint::Percentage(
             100 / self.profile.num_repos() as u16,
-        ))
-        .take(self.profile.num_repos())
+        ), self.profile.num_repos())
         .collect::<Vec<_>>();
         let areas = Layout::default()
             .direction(Direction::Vertical)
@@ -1637,10 +1635,9 @@ impl BorgTui {
     fn draw_all_archive_lists(&self, frame: &mut Frame, area: Rect) {
         // (RepoName, Option<ListArchive>)
         let repos_with_archives: Vec<_> = self.repos_with_archives();
-        let backup_constraints = std::iter::repeat(Constraint::Percentage(
+        let backup_constraints = std::iter::repeat_n(Constraint::Percentage(
             100 / repos_with_archives.len() as u16,
-        ))
-        .take(self.profile.num_repos())
+        ), self.profile.num_repos())
         .collect::<Vec<_>>();
         let areas = Layout::default()
             .direction(Direction::Vertical)
