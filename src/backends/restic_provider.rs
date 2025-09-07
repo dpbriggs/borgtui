@@ -2,8 +2,8 @@ use crate::{
     borgtui::CommandResponse,
     profiles::{Passphrase, PruneOptions, Repository, RepositoryOptions},
     types::{
-        Archive, BackupCreateProgress, BackupCreationProgress, BorgResult, CommandResponseSender,
-        RepositoryArchives,
+        Archive, BackupCreateProgress, BackupCreationProgress, BorgResult, CheckComplete,
+        CommandResponseSender, RepositoryArchives,
     },
 };
 use anyhow::anyhow;
@@ -16,6 +16,8 @@ use tokio::{
 };
 
 use super::backup_provider::BackupProvider;
+
+const LOGGING_THROTTLE_TIME: std::time::Duration = std::time::Duration::from_millis(40);
 
 #[derive(Deserialize)]
 struct ResticSnapshot {
@@ -85,7 +87,12 @@ impl BackupProvider for ResticProvider {
         let progress_channel_clone = progress_channel.clone();
 
         tokio::spawn(async move {
+            let mut last_update = std::time::Instant::now();
             while let Ok(Some(line)) = lines.next_line().await {
+                if last_update.elapsed() < LOGGING_THROTTLE_TIME {
+                    continue;
+                }
+                last_update = std::time::Instant::now();
                 if let Ok(progress) = serde_json::from_str::<ResticProgress>(&line) {
                     if progress.message_type == "status" {
                         let create_progress = BackupCreateProgress {
@@ -102,7 +109,7 @@ impl BackupProvider for ResticProvider {
                             .send(CommandResponse::CreateProgress(create_progress))
                             .await
                         {
-                            eprintln!("Failed to send progress: {}", e);
+                            tracing::error!("Failed to send progress: {}", e);
                         }
                     }
                 }
@@ -268,22 +275,8 @@ impl BackupProvider for ResticProvider {
     async fn check(
         &self,
         repo: &Repository,
-        _progress_channel: CommandResponseSender,
+        progress_channel: CommandResponseSender,
     ) -> BorgResult<bool> {
-        self.check_or_repair(repo, false).await
-    }
-
-    async fn repair(
-        &self,
-        repo: &Repository,
-        _progress_channel: CommandResponseSender,
-    ) -> BorgResult<bool> {
-        self.check_or_repair(repo, true).await
-    }
-}
-
-impl ResticProvider {
-    async fn check_or_repair(&self, repo: &Repository, repair: bool) -> BorgResult<bool> {
         let passphrase = repo
             .get_passphrase()?
             .ok_or_else(|| anyhow!("Restic requires a password to check."))?;
@@ -293,20 +286,94 @@ impl ResticProvider {
             .arg("check")
             .arg("--repo")
             .arg(repo.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .env("RESTIC_PASSWORD", passphrase.inner());
-
-        if repair {
-            command.arg("--with-cache"); // TODO: Is this the right way to repair?
-        }
 
         let output = command.spawn()?.wait_with_output().await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!("Restic check failed: {}", stderr);
+            tracing::error!("Restic check failed: {}", stderr);
+            if let Err(e) = progress_channel
+                .send(CommandResponse::CheckComplete(CheckComplete::new(
+                    repo.path(),
+                    Some(stderr.to_string()),
+                )))
+                .await
+            {
+                tracing::error!("Failed to send CheckComplete: {e}");
+            }
             return Ok(false);
+        } else {
+            if let Err(e) = progress_channel
+                .send(CommandResponse::CheckComplete(CheckComplete::new(
+                    repo.path(),
+                    None,
+                )))
+                .await
+            {
+                tracing::error!("Failed to send CheckComplete: {e}");
+            }
+            tracing::info!(
+                "Restic check output: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
         }
 
         Ok(true)
+    }
+
+    async fn repair(
+        &self,
+        repo: &Repository,
+        progress_channel: CommandResponseSender,
+    ) -> BorgResult<bool> {
+        let passphrase = repo
+            .get_passphrase()?
+            .ok_or_else(|| anyhow!("Restic requires a password to check."))?;
+
+        let commands = &[["repair", "index"], ["repair", "snapshots"]];
+        let mut error_occured = false;
+
+        for command in commands {
+            let mut cmd = tokio::process::Command::new("restic");
+            cmd.args(command)
+                .arg("--repo")
+                .arg(repo.path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .env("RESTIC_PASSWORD", passphrase.inner());
+
+            let output = cmd.spawn()?.wait_with_output().await?;
+            let mut error = None;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                error = Some(stderr.to_string());
+                error_occured = true;
+                tracing::error!("Restic repair failed: {}", stderr);
+            } else {
+                tracing::info!("Restic repair command {:?} completed successfully", command);
+                tracing::info!(
+                    "Restic repair output: {}",
+                    String::from_utf8_lossy(&output.stdout)
+                );
+            }
+
+            if let Err(e) = progress_channel
+                .send(CommandResponse::CheckComplete(CheckComplete::new(
+                    repo.path(),
+                    error.clone(),
+                )))
+                .await
+            {
+                tracing::error!("Failed to send CheckComplete: {e:?}");
+            }
+        }
+
+        Ok(!error_occured)
     }
 }
