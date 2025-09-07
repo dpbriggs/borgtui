@@ -1,3 +1,4 @@
+#![cfg(feature = "rustic")]
 // Copied from
 // https://github.com/rustic-rs/rustic/blob/main/src/commands/mount/fusefs.rs#L140
 // TODO: potentially rewrite

@@ -11,7 +11,7 @@ use std::{
 use crate::{
     backends::{
         backup_provider::BackupProvider, borg_provider::BorgProvider,
-        restic_provider::ResticProvider, rustic_provider::RusticProvider,
+        restic_provider::ResticProvider,
     },
     cli::PassphraseSource,
     types::{
@@ -24,6 +24,9 @@ use anyhow::{bail, Context};
 use keyring::Entry;
 use std::fs;
 use tracing::info;
+
+#[cfg(feature = "rustic")]
+use crate::backends::rustic_provider::RusticProvider;
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Semaphore};
@@ -104,6 +107,7 @@ impl Encryption {
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub(crate) enum RepositoryKind {
     Borg,
+    #[cfg(feature = "rustic")]
     Rustic,
     Restic,
 }
@@ -112,6 +116,7 @@ impl std::fmt::Display for RepositoryKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let sort = match self {
             RepositoryKind::Borg => "borg".to_string(),
+            #[cfg(feature = "rustic")]
             RepositoryKind::Rustic => "rustic".to_string(),
             RepositoryKind::Restic => "restic".to_string(),
         };
@@ -126,7 +131,9 @@ impl FromStr for RepositoryKind {
         match s {
             "borg" => Ok(RepositoryKind::Borg),
             "Borg" => Ok(RepositoryKind::Borg),
+            #[cfg(feature = "rustic")]
             "rustic" => Ok(RepositoryKind::Rustic),
+            #[cfg(feature = "rustic")]
             "Rustic" => Ok(RepositoryKind::Rustic),
             "restic" => Ok(RepositoryKind::Restic),
             "Restic" => Ok(RepositoryKind::Restic),
@@ -162,6 +169,7 @@ impl ToLatestRepository for RepositoryV1 {
             RepositoryKind::Borg => {
                 RepositoryOptions::BorgV1(BorgV1OptionsBuilder::new().rsh(self.rsh.clone()).build())
             }
+            #[cfg(feature = "rustic")]
             RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
             RepositoryKind::Restic => RepositoryOptions::Restic(Default::default()),
         };
@@ -255,6 +263,7 @@ pub(crate) struct ResticOptions {}
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub(crate) enum RepositoryOptions {
     BorgV1(BorgV1Options),
+    #[cfg(feature = "rustic")]
     Rustic(RusticOptions),
     Restic(ResticOptions),
 }
@@ -270,6 +279,7 @@ impl RepositoryOptions {
         }
     }
 
+    #[cfg(feature = "rustic")]
     pub(crate) fn rustic_options(&self) -> BorgResult<RusticOptions> {
         match self {
             RepositoryOptions::Rustic(options) => Ok(options.clone()),
@@ -364,6 +374,7 @@ impl Repository {
     }
 
     #[allow(unused)]
+    #[cfg(feature = "rustic")]
     pub(crate) fn rustic_options(&self) -> BorgResult<RusticOptions> {
         self.config.rustic_options()
     }
@@ -421,6 +432,7 @@ impl Repository {
     pub(crate) fn backup_provider(&self) -> Box<dyn BackupProvider> {
         match self.config {
             RepositoryOptions::BorgV1(_) => Box::new(BorgProvider {}),
+            #[cfg(feature = "rustic")]
             RepositoryOptions::Rustic(_) => Box::new(RusticProvider {}),
             RepositoryOptions::Restic(_) => Box::new(ResticProvider {}),
         }
@@ -429,6 +441,7 @@ impl Repository {
     pub(crate) fn repo_kind_name(&self) -> &'static str {
         match self.config {
             RepositoryOptions::BorgV1(_) => "Borg",
+            #[cfg(feature = "rustic")]
             RepositoryOptions::Rustic(_) => "Rustic",
             RepositoryOptions::Restic(_) => "Restic",
         }
@@ -820,6 +833,7 @@ impl Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "rustic")]
     const GOLDEN_V1_CONFIG: &str = r#"
 {
   "name": "dev",
@@ -861,6 +875,7 @@ mod tests {
 }
 "#;
 
+    #[cfg(feature = "rustic")]
     const GOLDEN_V2_CONFIG: &str = r#"
 {
   "name": "dev",
@@ -906,8 +921,78 @@ mod tests {
 }
 "#;
 
+    // TODO: Format. Why did zed not do this automatically???
+    const GOLDEN_V2_CONFIG_NON_RUSTIC: &str = r#"
+{
+"name": "dev",
+"backup_paths": [
+"/home/david/programming/collatz",
+"/home/david/programming/advent-of-code-2020",
+"/home/david/programming/borgtui",
+"/home/david/Pictures"
+],
+"exclude_patterns": [
+"**/tmp*"
+],
+"exclude_caches": true,
+"prune_options": {
+"keep_daily": 2,
+"keep_weekly": 1,
+"keep_monthly": 1,
+"keep_yearly": 1
+},
+"action_timeout_seconds": 30,
+"repos": [
+{
+  "path": "/home/david/borg-test-repo0",
+  "encryption": "None",
+  "disabled": false,
+  "config": {
+    "BorgV1": {
+      "rsh": "foobar"
+    }
+  }
+}
+]
+}
+"#;
+
+    // TODO: Format. Why did zed not do this automatically???
+    const GOLDEN_V1_CONFIG_NON_RUSTIC: &str = r#"
+{
+"name": "dev",
+"backup_paths": [
+"/home/david/programming/collatz",
+"/home/david/programming/advent-of-code-2020",
+"/home/david/programming/borgtui",
+"/home/david/Pictures"
+],
+"exclude_patterns": [
+"**/tmp*"
+],
+"exclude_caches": true,
+"prune_options": {
+"keep_daily": 2,
+"keep_weekly": 1,
+"keep_monthly": 1,
+"keep_yearly": 1
+},
+"action_timeout_seconds": 30,
+"repos": [
+{
+  "path": "/home/david/borg-test-repo0",
+  "rsh": "foobar",
+  "encryption": "None",
+  "disabled": false,
+  "kind": "Borg"
+}
+]
+}
+"#;
+
     #[test]
-    fn can_load_old_config() {
+    #[cfg(feature = "rustic")]
+    fn can_load_old_config_rustic() {
         let profile: Profile = serde_json::from_str(GOLDEN_V1_CONFIG).unwrap();
         assert_eq!(
             profile.repositories()[0]
@@ -921,7 +1006,20 @@ mod tests {
     }
 
     #[test]
-    fn can_load_new_config() {
+    fn can_load_old_config() {
+        let profile: Profile = serde_json::from_str(GOLDEN_V1_CONFIG_NON_RUSTIC).unwrap();
+        assert_eq!(
+            profile.repositories()[0]
+                .borg_options()
+                .expect("should have borg options")
+                .rsh,
+            Some("foobar".to_string())
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "rustic")]
+    fn can_load_new_config_rustic() {
         let profile: Profile = serde_json::from_str(GOLDEN_V2_CONFIG).unwrap();
         assert_eq!(
             profile.repositories()[0]
@@ -994,9 +1092,25 @@ mod tests {
     }
 
     #[test]
-    fn v1_to_v2_config_yields_same_config() {
+    #[cfg(feature = "rustic")]
+    fn v1_to_v2_config_yields_same_config_rustic() {
         let profile_v1: Profile = serde_json::from_str(GOLDEN_V1_CONFIG).unwrap();
         let profile_v2: Profile = serde_json::from_str(GOLDEN_V2_CONFIG).unwrap();
+        profile_v1
+            .repositories()
+            .iter()
+            .zip(profile_v2.repositories())
+            .for_each(|(v1, v2)| {
+                assert_eq!(v1.path, v2.path);
+                assert_eq!(v1.disabled, v2.disabled);
+                assert_eq!(v1.config, v2.config);
+            });
+    }
+
+    #[test]
+    fn v1_to_v2_config_yields_same_config() {
+        let profile_v1: Profile = serde_json::from_str(GOLDEN_V1_CONFIG_NON_RUSTIC).unwrap();
+        let profile_v2: Profile = serde_json::from_str(GOLDEN_V2_CONFIG_NON_RUSTIC).unwrap();
         profile_v1
             .repositories()
             .iter()

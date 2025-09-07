@@ -1,3 +1,4 @@
+#![cfg(feature = "rustic")]
 use std::{
     path::PathBuf,
     sync::{

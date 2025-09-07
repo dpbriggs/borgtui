@@ -358,6 +358,7 @@ pub(crate) struct BackupCreateProgress {
 }
 
 impl BackupCreateProgress {
+    #[cfg(feature = "rustic")]
     pub(crate) fn new(repository: String, create_progress: BackupCreationProgress) -> Self {
         Self {
             repository,
@@ -365,6 +366,7 @@ impl BackupCreateProgress {
         }
     }
 
+    #[cfg(feature = "rustic")]
     pub(crate) fn finished(repository: String) -> Self {
         Self {
             repository,
@@ -386,6 +388,7 @@ pub(crate) struct RepositoryArchives {
 }
 
 impl RepositoryArchives {
+    #[cfg(feature = "rustic")]
     pub(crate) fn new(path: String, archives: Vec<Archive>) -> Self {
         Self { path, archives }
     }

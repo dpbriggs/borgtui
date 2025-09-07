@@ -461,6 +461,7 @@ async fn handle_action(
                 RepositoryKind::Borg => {
                     RepositoryOptions::BorgV1(BorgV1OptionsBuilder::new().rsh(rsh).build())
                 }
+                #[cfg(feature = "rustic")]
                 RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
                 RepositoryKind::Restic => RepositoryOptions::Restic(Default::default()),
             };
@@ -515,6 +516,7 @@ async fn handle_action(
                 RepositoryKind::Borg => {
                     RepositoryOptions::BorgV1(BorgV1OptionsBuilder::new().rsh(rsh).build())
                 }
+                #[cfg(feature = "rustic")]
                 RepositoryKind::Rustic => RepositoryOptions::Rustic(Default::default()),
                 RepositoryKind::Restic => RepositoryOptions::Restic(Default::default()),
             };

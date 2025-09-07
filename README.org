@@ -282,28 +282,88 @@ To repository options living under a config enum:
 BorgTUI will transparently load the "V1" config and transform it into the latest config file format on save.
 To update to the latest config format, use =$ borgtui update-config= or open BorgTUI and hit "s" to "save profile".
 
-** Appendix
+*** Upgrading to 0.6.0 - Rustic is now optional
 
-*** **Experimental** Rustic Backend Support
+As of =0.6.0= the =rustic= backend is now optional and requires the =rustic= feature flag to be built.
+You can manually install it with the =--features rustic= flag:
 
-BorgTUI supports [[https://rustic.cli.rs/][Rustic]] as a native backup backend. The configuration is nearly identical except for a repository =kind= in configs:
+#+begin_src bash
+cargo install --features rustic --git https://github.com/dpbriggs/borgtui.git
+#+end_src
+
+Or edit the PKGBUILD if you're using the AUR.
+
+If you're using a Rustic repo, consider switching to the Restic as the backend instead.
+Restic is more mature and stable.
+
+** Backends
+
+BorgTUI supports several backends. The default is Borg V1 which is the most widely used version of Borg.
+It also supports [[https://github.com/restic/restic][restic]] and [[https://github.com/rustic-rs/rustic][rustic]].
+
+*** BorgV1
+
+BorgTUI supports [[https://www.borgbackup.org/][BorgV1]] as a native backup backend.
+The configuration is nearly identical except for a repository =kind= in configs:
 
 #+begin_src json
-...
   "repos": [
     {
-      "kind": "Rustic"
-      "path": "/home/david/restic-test-repo",
-       ...
+      ...
+      "path": "/home/david/borg-test-repo0",
+      "config": {
+        "BorgV1": {
+          "rsh": "ssh -i ~/.ssh/my_key",
+          "remote_path": "/usr/bin/borg"
+        }
+      }
     },
   ]
-...
+#+end_src
+
+*** Restic (Alpha)
+
+BorgTUI supports [[https://restic.net/][Restic]] as a native backup backend.
+You must have the `restic` binary installed and available in your PATH for it to work.
+
+There's currently no special configuration for Restic and its config looks like:
+
+#+begin_src json
+  "repos": [
+    {
+      "path": "/home/david/restic-test-repo",
+      "config": {
+        "Restic": {}
+      }
+    },
+  ]
+#+end_src
+
+To initialize a restic repo follow the usual init process but with =--kind restic= passed in.
+Same idea for adding repos -- just do =borgtui add-repo --kind restic <..>=.
+
+*** restic (Experimental)
+
+BorgTUI supports [[https://restic.net/][Restic]] as an optional backup backend if built with the =rustic= feature flag.
+Similar to restic there are currently no configuration flags for it and its config looks like:
+
+#+begin_src json
+  "repos": [
+    {
+      "path": "/home/david/rustic-test-repo",
+      "config": {
+        "Rustic": {}
+      }
+    },
+  ]
 #+end_src
 
 To initialize a rustic repo follow the usual init process but with =--kind rustic= passed in.
 Same idea for adding repos -- just do =borgtui add-repo --kind rustic <..>=.
 
 **WARNING**: Rustic support is not production grade yet. It's intended to provide N+1 redundancy in terms of backup providers. Please use it in conjunction with other backup providers (borg, whatever you use, etc).
+
+** Appendix
 
 *** Manual Installation
 

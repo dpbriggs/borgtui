@@ -70,9 +70,10 @@ fn make_common_options(repo: &Repository) -> BorgResult<CommonOptions> {
 
 /// TODO: tie this into the repo which was mounted!
 pub(crate) async fn hack_unmount(mountpoint: PathBuf) -> BorgResult<()> {
-    rustic_provider::RusticProvider {}
-        .unmount(mountpoint)
-        .await?;
+    let mut exit = tokio::process::Command::new("umount")
+        .arg(mountpoint)
+        .spawn()?;
+    tracing::info!("unmount finished with exitcode {:?}", exit.wait().await?);
     Ok(())
 }
 
@@ -142,7 +143,7 @@ async fn borg_check(
     Ok(exit.success())
 }
 
-use super::{backup_provider::BackupProvider, rustic_provider};
+use super::backup_provider::BackupProvider;
 
 pub(crate) struct BorgProvider;
 
