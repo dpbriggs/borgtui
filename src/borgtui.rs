@@ -1483,9 +1483,14 @@ impl BorgTui {
 
     fn draw_check_list(&self, frame: &mut Frame, area: Rect) {
         // TODO: Refactor this into a shared function
-        let check_constraints = std::iter::repeat_n(Constraint::Percentage(
-            100 / self.profile.num_repos() as u16,
-        ), self.profile.num_repos())
+        let check_constraints = std::iter::repeat_n(
+            Constraint::Percentage(
+                100_u16
+                    .checked_div(self.profile.num_repos() as u16)
+                    .unwrap_or(100),
+            ),
+            self.profile.num_repos(),
+        )
         .collect::<Vec<_>>();
         let areas = Layout::default()
             .direction(Direction::Vertical)
@@ -1547,11 +1552,40 @@ impl BorgTui {
             })
     }
 
+    fn draw_no_repositories_warning(&self, frame: &mut Frame, area: Rect) {
+        let warning_text = vec![
+            Line::from(""),
+            Line::from(""),
+            Line::from(""),
+            Line::from("No repositories found in profile!"),
+            Line::from("The TUI cannot perform meaningful actions without a repository."),
+            Line::from(""),
+            Line::from("Please create a repository by following the documentation:"),
+            Line::from(
+                "> https://github.com/dpbriggs/borgtui?tab=readme-ov-file#quick-start-guide",
+            ),
+        ];
+        let warning_panel = Paragraph::new(warning_text)
+            .wrap(Wrap { trim: true })
+            .alignment(ratatui::layout::Alignment::Center)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!(" Warning: {} ", &self.profile)),
+            );
+        frame.render_widget(warning_panel, area);
+    }
+
     fn draw_backup_list(&self, frame: &mut Frame, area: Rect) {
         // TODO: Handle running out of vertical space!
-        let backup_constraints = std::iter::repeat_n(Constraint::Percentage(
-            100 / self.profile.num_repos() as u16,
-        ), self.profile.num_repos())
+        let backup_constraints = std::iter::repeat_n(
+            Constraint::Percentage(
+                100_u16
+                    .checked_div(self.profile.num_repos() as u16)
+                    .unwrap_or(100),
+            ),
+            self.profile.num_repos(),
+        )
         .collect::<Vec<_>>();
         let areas = Layout::default()
             .direction(Direction::Vertical)
@@ -1635,9 +1669,14 @@ impl BorgTui {
     fn draw_all_archive_lists(&self, frame: &mut Frame, area: Rect) {
         // (RepoName, Option<ListArchive>)
         let repos_with_archives: Vec<_> = self.repos_with_archives();
-        let backup_constraints = std::iter::repeat_n(Constraint::Percentage(
-            100 / repos_with_archives.len() as u16,
-        ), self.profile.num_repos())
+        let backup_constraints = std::iter::repeat_n(
+            Constraint::Percentage(
+                100_u16
+                    .checked_div(repos_with_archives.len() as u16)
+                    .unwrap_or(100),
+            ),
+            self.profile.num_repos(),
+        )
         .collect::<Vec<_>>();
         let areas = Layout::default()
             .direction(Direction::Vertical)
@@ -1807,6 +1846,10 @@ impl BorgTui {
     }
 
     fn draw_main_right_panel(&mut self, frame: &mut Frame, right_area: Rect) {
+        if self.profile.num_repos() == 0 {
+            self.draw_no_repositories_warning(frame, right_area);
+            return;
+        }
         match &self.ui_state {
             UIState::ProfileView => {
                 let mounted_items = self
