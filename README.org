@@ -342,9 +342,9 @@ There's currently no special configuration for Restic and its config looks like:
 To initialize a restic repo follow the usual init process but with =--kind restic= passed in.
 Same idea for adding repos -- just do =borgtui add-repo --kind restic <..>=.
 
-*** restic (Experimental)
+*** rustic (Experimental)
 
-BorgTUI supports [[https://restic.net/][Restic]] as an optional backup backend if built with the =rustic= feature flag.
+BorgTUI supports Rustic as an optional backup backend if built with the =rustic= feature flag.
 Similar to restic there are currently no configuration flags for it and its config looks like:
 
 #+begin_src json
