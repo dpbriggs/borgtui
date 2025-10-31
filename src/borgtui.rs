@@ -520,7 +520,7 @@ impl Popup for MountPopup {
         self.input.is_done() || self.is_done
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, _borgtui: &BorgTui) {
         self.input.draw(frame, area, |suggestions, input_buffer| {
             suggestions.contains(input_buffer)
         })
@@ -611,7 +611,7 @@ impl Popup for AddFileToProfilePopup {
         self.input.is_done() || self.path_successfully_added.load(Ordering::SeqCst)
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, _borgtui: &BorgTui) {
         self.input.draw(frame, area, |_, input_buffer| {
             std::fs::metadata(input_buffer).is_ok()
         })
@@ -703,7 +703,7 @@ impl Popup for ConfirmationPopup {
         Ok(())
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, _borgtui: &BorgTui) {
         frame.render_widget(ratatui::widgets::Clear, area);
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -774,12 +774,208 @@ impl Popup for MessagePopup {
         self.is_dismissed
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, _borgtui: &BorgTui) {
         frame.render_widget(ratatui::widgets::Clear, area);
         let input_panel = Paragraph::new(self.error_message.clone())
             .wrap(Wrap { trim: true })
             .block(Block::default().borders(Borders::ALL).title("Error"));
         frame.render_widget(input_panel, area);
+    }
+}
+
+#[derive(Debug)]
+struct ManageBackupPathsPopup {
+    cursor_index: usize,
+    is_done: bool,
+    pending_add: bool,
+}
+
+impl ManageBackupPathsPopup {
+    fn new() -> Self {
+        Self {
+            cursor_index: 0,
+            is_done: false,
+            pending_add: false,
+        }
+    }
+}
+
+impl Popup for ManageBackupPathsPopup {
+    fn handle_key(&mut self, key: KeyEvent, borgtui: &mut BorgTui) {
+        let num_paths = borgtui.profile.backup_paths().len();
+
+        match (key.code, key.modifiers) {
+            (KeyCode::Char('q'), _) | (KeyCode::Esc, _) | (KeyCode::Char('g'), KeyModifiers::CONTROL) => {
+                self.is_done = true;
+            }
+            (KeyCode::Char('a'), _) | (KeyCode::Char('i'), _) => {
+                // Add new path
+                let initial_dir = dirs::home_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                borgtui.add_popup(AddFileToProfilePopup::new(initial_dir));
+                self.pending_add = true;
+            }
+            (KeyCode::Char('d'), _) | (KeyCode::Delete, _) => {
+                // Remove selected path
+                if num_paths > 0 && self.cursor_index < num_paths {
+                    let path_to_remove = borgtui.profile.backup_paths()[self.cursor_index].clone();
+                    let path_display = path_to_remove.display().to_string();
+
+                    borgtui.add_popup(ConfirmationPopup::new(
+                        format!("Remove backup path?\n\n{}", path_display),
+                        ConfirmationButtonState::No,
+                        Box::new(move |state, borgtui| {
+                            if let ConfirmationButtonState::Yes = state {
+                                let signal_success = Arc::new(AtomicBool::new(false));
+                                if let Err(e) = borgtui.command_channel.blocking_send(
+                                    Command::UpdateProfileAndSave(
+                                        borgtui.profile.clone(),
+                                        ProfileOperation::RemoveBackupPath(path_to_remove.clone()),
+                                        signal_success.clone(),
+                                    ),
+                                ) {
+                                    borgtui.add_error(format!("Failed to remove path: {}", e));
+                                }
+                            }
+                        }),
+                    ));
+                }
+            }
+            (KeyCode::Down, _) | (KeyCode::Char('j'), _) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+                if num_paths > 0 {
+                    self.cursor_index = (self.cursor_index + 1).min(num_paths - 1);
+                }
+            }
+            (KeyCode::Up, _) | (KeyCode::Char('k'), _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
+                if num_paths > 0 {
+                    self.cursor_index = self.cursor_index.saturating_sub(1);
+                }
+            }
+            (KeyCode::Home, _) | (KeyCode::Char('g'), _) => {
+                self.cursor_index = 0;
+            }
+            (KeyCode::End, _) | (KeyCode::Char('G'), _) => {
+                if num_paths > 0 {
+                    self.cursor_index = num_paths - 1;
+                }
+            }
+            _ => {}
+        }
+
+        // Ensure cursor stays in bounds when paths are removed
+        if num_paths > 0 && self.cursor_index >= num_paths {
+            self.cursor_index = num_paths - 1;
+        }
+    }
+
+    fn on_tick(
+        &mut self,
+        _command_channel: &Sender<Command>,
+        _directory_suggestions: &[PathBuf],
+        _list_archives: &HashMap<String, RepositoryArchives>,
+    ) -> BorgResult<()> {
+        Ok(())
+    }
+
+    fn is_done(&self) -> bool {
+        self.is_done
+    }
+
+    fn draw(&self, frame: &mut Frame, area: Rect, borgtui: &BorgTui) {
+        frame.render_widget(ratatui::widgets::Clear, area);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(3),
+                Constraint::Length(6),
+            ])
+            .split(area);
+
+        let (list_area, help_area) = (chunks[0], chunks[1]);
+
+        // Get backup paths and their sizes
+        let backup_paths = borgtui.profile.backup_paths();
+        let mut rows = Vec::new();
+
+        if backup_paths.is_empty() {
+            rows.push(Row::new(vec![
+                Cell::from(""),
+                Cell::from("No backup paths configured"),
+            ]));
+        } else {
+            for (idx, path) in backup_paths.iter().enumerate() {
+                let size_str = if let Some(size_atomic) = borgtui.backup_path_sizes.get(path) {
+                    let size = size_atomic.load(Ordering::SeqCst);
+                    if size > 0 {
+                        PrettyBytes(size).to_string()
+                    } else {
+                        "Calculating...".to_string()
+                    }
+                } else {
+                    "Unknown".to_string()
+                };
+
+                let path_str = path.display().to_string();
+
+                let style = if idx == self.cursor_index {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+
+                rows.push(Row::new(vec![
+                    Cell::from(size_str),
+                    Cell::from(path_str),
+                ]).style(style));
+            }
+        }
+
+        let widths = [Constraint::Length(15), Constraint::Min(30)];
+
+        let table = Table::new(rows, widths)
+            .header(
+                Row::new(vec![
+                    Cell::from("Size"),
+                    Cell::from("Path"),
+                ])
+                .style(Style::default().add_modifier(Modifier::BOLD))
+                .bottom_margin(1),
+            )
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!("Backup Paths ({})", backup_paths.len())),
+            );
+
+        frame.render_widget(table, list_area);
+
+        // Help text
+        let help_text = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("a/i", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw(": Add path  "),
+                Span::styled("d/Del", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw(": Remove  "),
+            ]),
+            Line::from(vec![
+                Span::styled("↑↓/j/k", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw(": Navigate  "),
+                Span::styled("q/Esc", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw(": Close"),
+            ]),
+            Line::from(""),
+        ];
+
+        let help_widget = Paragraph::new(help_text)
+            .block(Block::default().borders(Borders::ALL).title("Help"));
+
+        frame.render_widget(help_widget, help_area);
     }
 }
 
@@ -791,7 +987,7 @@ trait Popup {
         directory_suggestions: &[PathBuf],
         list_archives: &HashMap<String, RepositoryArchives>,
     ) -> BorgResult<()>;
-    fn draw(&self, frame: &mut Frame, area: Rect);
+    fn draw(&self, frame: &mut Frame, area: Rect, borgtui: &BorgTui);
     fn is_done(&self) -> bool;
 }
 
@@ -904,6 +1100,9 @@ impl BorgTui {
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default();
                 self.add_popup(AddFileToProfilePopup::new(initial_dir));
+            }
+            KeyCode::Char('b') => {
+                self.add_popup(ManageBackupPathsPopup::new());
             }
             KeyCode::Char('s') => {
                 if let Err(e) = self.send_save_command() {
@@ -1725,6 +1924,7 @@ impl BorgTui {
             Line::from("• Press 'p' to toggle profile"),
             Line::from("• Press 'l' to list archives"),
             Line::from("• Press 'a' to add a backup path"),
+            Line::from("• Press 'b' to manage backup paths"),
             Line::from("• Press 's' to save profile"),
             Line::from("• Press 'y' to check"),
             Line::from("• Press 'c' to compact"),
@@ -1933,7 +2133,7 @@ impl BorgTui {
                     Constraint::Percentage(10),
                 ])
                 .split(top_left)[1];
-            popup.draw(frame, corner);
+            popup.draw(frame, corner, self);
         }
     }
 }

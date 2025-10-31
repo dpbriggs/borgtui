@@ -470,6 +470,7 @@ impl Default for PruneOptions {
 #[derive(Debug, Clone)]
 pub(crate) enum ProfileOperation {
     AddBackupPath(PathBuf),
+    RemoveBackupPath(PathBuf),
 }
 
 // Necessary for serde(default)
@@ -737,6 +738,10 @@ impl Profile {
         // This looks silly but I was intending to add more profile operations in the future :^)
         match op {
             ProfileOperation::AddBackupPath(path) => self.add_backup_path(path).await,
+            ProfileOperation::RemoveBackupPath(path) => {
+                self.remove_backup_path(&path);
+                Ok(())
+            }
         }
     }
 
