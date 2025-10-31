@@ -1203,7 +1203,7 @@ impl BorgTui {
                     match self.popup_stack.pop() {
                         Some(mut popup) => {
                             popup.handle_key(key, self);
-                            self.popup_stack.insert(0, popup);
+                            self.popup_stack.push(popup);
                         }
                         None => self.handle_keyboard_input(key)?,
                     }
