@@ -935,7 +935,7 @@ impl Popup for ManageBackupPathsPopup {
             }
         }
 
-        let widths = [Constraint::Length(15), Constraint::Min(30)];
+        let widths = [Constraint::Percentage(15), Constraint::Percentage(85)];
 
         let table = Table::new(rows, widths)
             .header(
