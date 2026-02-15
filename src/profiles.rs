@@ -778,6 +778,10 @@ impl Profile {
         self.repos.push(repo);
     }
 
+    pub(crate) fn remove_repository(&mut self, path: &str) {
+        self.repos.retain(|r| r.path != path);
+    }
+
     // TODO: Rewrite this in terms of PassphraseSource
     pub(crate) fn update_repository_password(
         &mut self,

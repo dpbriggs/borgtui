@@ -120,6 +120,13 @@ pub(crate) enum Action {
         #[command(flatten)]
         passphrase_loc: PassphraseSource,
     },
+    /// Remove a repository from the profile.
+    ///
+    /// If the repository is not found, similar repositories will be suggested.
+    RemoveRepo {
+        /// The repository path to remove. Use `borgtui list-repos` to list repositories.
+        repository: Option<String>,
+    },
     /// Create a new profile with a given name
     AddProfile { name: String },
     /// Mount a borg repo or archive as a FUSE filesystem.

@@ -530,6 +530,48 @@ async fn handle_action(
             info!("Added repository {} to profile {}", repository, profile);
             Ok(())
         }
+        Action::RemoveRepo { repository } => {
+            let mut profile = Profile::open_or_create(&profile_name).await?;
+            let repos = profile.repositories().to_vec();
+
+            if let Some(repository) = repository {
+                let prefix_matches: Vec<_> = repos
+                    .iter()
+                    .filter(|r| r.path.starts_with(&repository))
+                    .collect();
+
+                match prefix_matches.len() {
+                    1 => {
+                        let repo_path = prefix_matches[0].path.clone();
+                        profile.remove_repository(&repo_path);
+                        profile.save_profile().await?;
+                        info!("Removed repository {} from profile {}", repo_path, profile);
+                    }
+                    0 => {
+                        println!("Repository '{}' not found.", repository);
+                        println!("Did you mean one of these?");
+                        print_repo_list(&repos);
+                    }
+                    _ => {
+                        println!(
+                            "Repository '{}' is ambiguous. Did you mean one of these?",
+                            repository
+                        );
+                        print_repo_list(
+                            prefix_matches
+                                .into_iter()
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .as_slice(),
+                        );
+                    }
+                }
+            } else {
+                println!("Please specify a repository to remove. Available repositories:");
+                print_repo_list(&repos);
+            }
+            Ok(())
+        }
         Action::List {
             repository,
             all,
