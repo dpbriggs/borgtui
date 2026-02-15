@@ -778,6 +778,12 @@ impl Profile {
         self.repos.push(repo);
     }
 
+    pub(crate) fn remove_repository(&mut self, path: &str) -> bool {
+        let len_before = self.repos.len();
+        self.repos.retain(|r| r.path != path);
+        self.repos.len() < len_before
+    }
+
     // TODO: Rewrite this in terms of PassphraseSource
     pub(crate) fn update_repository_password(
         &mut self,
