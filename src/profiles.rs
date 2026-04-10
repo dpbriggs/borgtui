@@ -254,6 +254,7 @@ impl BorgV1OptionsBuilder {
     }
 }
 
+#[cfg(feature = "rustic")]
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 pub(crate) struct RusticOptions {}
 
