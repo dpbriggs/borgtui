@@ -537,9 +537,8 @@ dependencies = [
 
 [[package]]
 name = "borgbackup"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c14e261095aa9040f80fc2c8b641088c985d9b5b431cc295a292d68be22e05"
+version = "0.10.0"
+source = "git+https://github.com/dpbriggs/borgbackup-fork.git?rev=4e014331#4e014331f3bc8c9e186dd354870176067f398fb7"
 dependencies = [
  "chrono",
  "log",
@@ -547,7 +546,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shlex",
- "thiserror 1.0.69",
+ "thiserror 2.0.17",
  "tokio",
 ]
 
